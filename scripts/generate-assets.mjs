@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 const assets = [
@@ -38,6 +38,7 @@ const assets = [
   ['flower-blush','已拼好的灰粉花','inspiration','#c88e96',['#c88e96','#52694d','#e7c96b'],'布花','混合布料','通用素材','flower',330,300],
   ['sample-indigo','南通蓝印小样','inspiration','#2f4f73',['#2f4f73','#f5f0e6','#c8b28f'],'蓝白印花','棉布质感','南通蓝印花布灵感','jogakbo',360,285],
   ['sample-jogakbo','Jogakbo 小样','inspiration','#d78b7a',['#d78b7a','#72a291','#c7a05b','#8a7696'],'拼接','苎麻薄绡质感','韩国 Jogakbo 灵感','jogakbo',360,285],
+  ['sample-house','布块小屋','inspiration','#6d7e65',['#6d7e65','#4f6d8b','#d7b65d'],'基础拼图','混合布料','通用素材','mosaic',360,285],
 ]
 
 const esc = (s) => s.replaceAll('&', '&amp;').replaceAll('<', '&lt;')
@@ -59,17 +60,38 @@ const svgFor = (a) => {
   if (shape === 'frame') motif = `<path d="M5 5H${w-5}V${h-5}H5ZM34 30V${h-30}H${w-34}V30Z" fill="${c1}" fill-rule="evenodd"/><rect x="34" y="30" width="${w-68}" height="${h-60}" rx="6" fill="none" stroke="#6d5b4c" stroke-width="2" stroke-dasharray="7 5" opacity=".55"/><path d="M8 18H${w-8}M8 ${h-18}H${w-8}" stroke="${c2}" stroke-width="10" stroke-dasharray="18 8" opacity=".45"/>`
   if (shape === 'flower') motif = `<g transform="translate(${w/2} ${h/2})"><g fill="${c1}" stroke="#755b5f" stroke-width="2" stroke-dasharray="6 4">${[0,60,120,180,240,300].map(r=>`<ellipse cx="0" cy="-67" rx="35" ry="77" transform="rotate(${r})"/>`).join('')}</g><circle r="20" fill="${c3}"/><g fill="#efe0c8">${[0,60,120,180,240,300].map(r=>`<circle cx="0" cy="-56" r="4" transform="rotate(${r})"/>`).join('')}</g></g>`
   if (shape === 'jogakbo') motif = `<rect width="100%" height="100%" rx="12" fill="${c1}"/><path d="M0 ${h*.35}H${w}M${w*.3} 0V${h}M${w*.68} 0V${h}M${w*.3} ${h*.68}H${w}" stroke="${c2}" stroke-width="7" opacity=".7"/><rect x="${w*.31}" y="7" width="${w*.35}" height="${h*.32}" fill="${c3}" opacity=".55"/><rect x="8" y="${h*.38}" width="${w*.28}" height="${h*.58}" fill="${colors[3]||c2}" opacity=".55"/>`
-  const standard = !['petal','leaf','button','stitch','label','frame','flower','jogakbo'].includes(shape)
+  if (shape === 'mosaic') motif = `<rect width="100%" height="100%" rx="12" fill="#eee4d4"/><path d="M74 136L180 46l106 90Z" fill="${c2}" stroke="#635649" stroke-width="3" stroke-dasharray="8 5"/><rect x="94" y="134" width="172" height="112" rx="4" fill="${c1}" stroke="#635649" stroke-width="3" stroke-dasharray="8 5"/><rect x="165" y="180" width="45" height="66" fill="${c3}"/><rect x="112" y="157" width="35" height="34" fill="#e9ddd0"/><rect x="225" y="157" width="25" height="34" fill="#e9ddd0"/>`
+  const standard = !['petal','leaf','button','stitch','label','frame','flower','jogakbo','mosaic'].includes(shape)
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}"><defs><filter id="n"><feTurbulence baseFrequency=".7" numOctaves="2" seed="${id.length}" result="t"/><feBlend in="SourceGraphic" in2="t" mode="soft-light"/></filter></defs>${standard?`<path d="M6 7Q17 2 29 7L${w-12} 4Q${w-2} 13 ${w-7} 25L${w-4} ${h-13}Q${w-13} ${h-2} ${w-28} ${h-7}L16 ${h-4}Q2 ${h-12} 7 ${h-27}Z" fill="${base}"/>`:''}<g filter="url(#n)">${motif}</g>${standard?`<path d="M10 9L${w-12} 7M9 ${h-10}L${w-10} ${h-8}" stroke="#6d5b4c" stroke-width="1.5" stroke-dasharray="6 5" opacity=".45"/>`:''}<title>${esc(name)}</title></svg>`
 }
 
 await mkdir('public/assets/items', { recursive: true })
 const catalog = []
+const colorCategory = (id, color) => {
+  if (/floral|jogakbo/.test(id)) return '多色'
+  if (/cream|cloud|oat|pearl/.test(id)) return '米白'
+  if (/rose|blush|dusty|clay|coral/.test(id)) return '红粉'
+  if (/moss|jade|olive|leaf/.test(id)) return '绿色'
+  if (/indigo|denim|night/.test(id)) return '蓝紫'
+  if (/amber|sand|wood|label|linen/.test(id)) return '灰棕'
+  const hex = color.replace('#',''); const r=parseInt(hex.slice(0,2),16),g=parseInt(hex.slice(2,4),16),b=parseInt(hex.slice(4,6),16)
+  if (Math.max(r,g,b)<85) return '黑色'; if (Math.max(r,g,b)-Math.min(r,g,b)<24) return r>190?'米白':'灰棕'
+  return r>b*1.25&&r>g*1.05?'红粉':b>r*1.08?'蓝紫':g>r*1.04?'绿色':'黄橙'
+}
+const shapeNames = {rect:'方块',petal:'花瓣',leaf:'叶片',button:'圆形',stitch:'条带',label:'方块',frame:'相框',flower:'组合花',jogakbo:'拼接小样',mosaic:'基础拼图'}
 for (const a of assets) {
   const [id,name,category,color,colors,pattern,material,series,shape,width,height] = a
   const url = `/assets/items/${id}.svg`
   await writeFile(join('public/assets/items', `${id}.svg`), svgFor(a))
-  catalog.push({id,name,category,color,colors,pattern,material,series,shape,width,height,thumbnail:url,canvas:url,sourceType:'原创绘制',author:'拼布项目贡献者',sourceUrl:'',license:'CC BY 4.0',attribution:'“拼布”内置原创素材，CC BY 4.0',processing:'基于公开工艺资料提炼视觉特征后，以 SVG 原创建模；未复制馆藏或社交媒体图片。'})
+  const normalizedShape = shape==='rect'?(height<85?'strip':'square'):shape
+  const colorName=colorCategory(id,color)
+  catalog.push({id,name,category,color:colorName,colors:[colorName],palette:colors,pattern,material,series,shape:normalizedShape,shapeName:shape==='rect'?(height<85?'条带':'方块'):(shapeNames[shape]||shape),width,height,thumbnail:url,canvas:url,sourceId:`original-${id}`,sourceType:'原创绘制',author:'拼布项目贡献者',sourceUrl:'',license:'CC BY 4.0',licenseUrl:'https://creativecommons.org/licenses/by/4.0/',attribution:'“拼布”内置原创素材，CC BY 4.0',processing:'基于公开工艺资料提炼视觉特征后，以 SVG 原创建模；未复制馆藏或社交媒体图片。',tags:[name,colorName,pattern,material,series,shapeNames[shape]||shape],transparent:true})
 }
+try {
+  const processed = JSON.parse(await readFile('public/assets/texture-pieces.json','utf8'))
+  catalog.unshift(...processed)
+} catch {}
 await writeFile('public/assets/catalog.json', JSON.stringify(catalog, null, 2))
-console.log(`Generated ${catalog.length} original SVG assets.`)
+const stats={total:catalog.length,fabric:catalog.filter(x=>x.category==='fabric').length,parts:catalog.filter(x=>x.category==='part').length,frames:catalog.filter(x=>x.category==='frame').length,inspiration:catalog.filter(x=>x.category==='inspiration').length,baseSources:40,transparent:catalog.filter(x=>x.transparent).length}
+await writeFile('public/assets/stats.json',JSON.stringify(stats,null,2))
+console.log(`Generated catalog with ${catalog.length} assets (${stats.fabric} fabric pieces).`)

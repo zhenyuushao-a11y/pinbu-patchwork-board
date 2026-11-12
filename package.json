@@ -8,6 +8,8 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1",
     "generate:assets": "node scripts/generate-assets.mjs",
+    "fetch:textures": "node scripts/fetch-textures.mjs",
+    "process:textures": "python3 scripts/process-textures.py && python3 scripts/build-overview.py && node scripts/generate-assets.mjs",
     "test": "node --test tests/*.test.mjs"
   },
   "dependencies": {

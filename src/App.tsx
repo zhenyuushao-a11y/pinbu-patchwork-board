@@ -2,9 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArchiveRestore, ArrowDownToLine, BringToFront, Check, ChevronDown, CircleHelp,
   Copy, Download, FileImage, FolderOpen, Frame, Grip, ImagePlus, Layers3, Link2,
-  Minus, MoreHorizontal, MousePointer2, Palette, PanelLeftClose, PanelLeftOpen,
+  FlipHorizontal, FlipVertical, Minus, MoreHorizontal, MousePointer2, Palette, PanelLeftClose, PanelLeftOpen,
   Plus, Redo2, RotateCcw, RotateCw, Save, Scissors, SendToBack, Shapes, Sparkles,
-  SquareDashed, Trash2, Type, Undo2, Upload, ZoomIn, ZoomOut,
+  Search, SlidersHorizontal, SquareDashed, Trash2, Type, Undo2, Upload, X, ZoomIn, ZoomOut,
 } from 'lucide-react'
 import type { Asset, AssetCategory, Board, BoardItem, ChildItem, SavedState } from './types'
 import { loadWorkspace, saveWorkspace, validateImportedProject } from './storage'
@@ -35,6 +35,14 @@ const flowerChildren: ChildItem[] = [
   {assetId:'petal-blush',x:18,y:150,width:120,height:62,rotation:325},
   {assetId:'petal-cream',x:12,y:48,width:118,height:60,rotation:35},
   {assetId:'button-pearl',x:143,y:126,width:44,height:44,rotation:0},
+]
+
+const houseChildren: ChildItem[] = [
+  {assetId:'tex-poly-ribbed_corduroy-square',x:78,y:118,width:176,height:142,rotation:0},
+  {assetId:'tex-poly-denim_fabric-triangle',x:56,y:20,width:224,height:142,rotation:0},
+  {assetId:'tex-poly-bi_stretch-strip',x:140,y:183,width:56,height:77,rotation:90},
+  {assetId:'tex-poly-polar_fleece-square',x:96,y:153,width:42,height:42,rotation:0},
+  {assetId:'tex-poly-polar_fleece-square',x:208,y:153,width:34,height:42,rotation:0},
 ]
 
 function defaultBoard(): Board {
@@ -96,8 +104,10 @@ interface SceneProps {
 
 function AssetImage({asset,item,dataUrls}:{asset?:Asset,item:BoardItem|ChildItem,dataUrls:Map<string,string>}) {
   if (!asset) return <rect width={item.width} height={item.height} rx="10" fill="#c9b9a2" stroke="#9a8770" strokeDasharray="8 6" />
-  return <image href={dataUrls.get(asset.id) || asset.canvas} width={item.width} height={item.height} preserveAspectRatio="none" />
+  return <image data-asset-id={asset.id} href={dataUrls.get(asset.id) || asset.canvas} width={item.width} height={item.height} preserveAspectRatio="none" />
 }
+
+const objectTransform = (item:BoardItem) => `translate(${item.x + item.width/2} ${item.y + item.height/2}) rotate(${item.rotation}) scale(${item.flipX?-1:1} ${item.flipY?-1:1}) translate(${-item.width/2} ${-item.height/2})`
 
 function BoardScene({board,assets,dataUrls,selectedId,interactive,onItemDown}:SceneProps) {
   return <>
@@ -109,7 +119,7 @@ function BoardScene({board,assets,dataUrls,selectedId,interactive,onItemDown}:Sc
     <rect width={board.width} height={board.height} rx="2" fill={board.background} filter="url(#paper-noise)" />
     {board.items.map((item) => {
       const asset = item.assetId ? assets.get(item.assetId) : undefined
-      return <g key={item.id} transform={`translate(${item.x} ${item.y}) rotate(${item.rotation} ${item.width/2} ${item.height/2})`} opacity={item.opacity} filter={item.kind==='text'?'':'url(#item-shadow)'} onPointerDown={interactive?(e)=>onItemDown?.(e,item.id,'move'):undefined} className={interactive?'canvas-object':''}>
+      return <g key={item.id} transform={objectTransform(item)} opacity={item.opacity} filter={item.kind==='text'?'':'url(#item-shadow)'} onPointerDown={interactive?(e)=>onItemDown?.(e,item.id,'move'):undefined} className={interactive?'canvas-object':''}>
         {item.kind==='text' && <text x="0" y={item.fontSize || 28} fill={item.color || '#302b26'} fontSize={item.fontSize || 28} fontFamily="ui-serif, STKaiti, KaiTi, serif" style={{whiteSpace:'pre'}}>{(item.text||'').split('\n').map((line,n)=><tspan key={n} x="0" dy={n===0?0:(item.fontSize||28)*1.28}>{line}</tspan>)}</text>}
         {(item.kind==='asset'||item.kind==='stitch') && <AssetImage asset={asset} item={item} dataUrls={dataUrls}/>} 
         {item.kind==='photo' && <g clipPath={`url(#clip-${item.id})`}><image href={item.photoData} x={item.cropX||0} y={item.cropY||0} width={item.width*(item.cropScale||1)} height={item.height*(item.cropScale||1)} preserveAspectRatio="xMidYMid slice"/></g>}
@@ -140,8 +150,10 @@ function App() {
   const [workspace,setWorkspace] = useState<SavedState|null>(null)
   const [selectedId,setSelectedId] = useState<string>()
   const [tab,setTab] = useState<AssetCategory>('fabric')
-  const [colorFilter,setColorFilter] = useState('全部')
-  const [patternFilter,setPatternFilter] = useState('全部')
+  const [filters,setFilters] = useState({colors:[] as string[],shapes:[] as string[],materials:[] as string[],patterns:[] as string[]})
+  const [searchQuery,setSearchQuery] = useState('')
+  const [filterExpanded,setFilterExpanded] = useState(false)
+  const [visibleLimit,setVisibleLimit] = useState(40)
   const [drawerOpen,setDrawerOpen] = useState(true)
   const [seriesInfo,setSeriesInfo] = useState<string>()
   const [view,setView] = useState({zoom:.88,panX:110,panY:75})
@@ -158,6 +170,7 @@ function App() {
   const [textSize,setTextSize] = useState(28)
   const [textColor,setTextColor] = useState('#405747')
   const [cropMode,setCropMode] = useState(false)
+  const [showBackground,setShowBackground] = useState(false)
   const photoInput = useRef<HTMLInputElement>(null)
   const projectInput = useRef<HTMLInputElement>(null)
   const svgRef = useRef<SVGSVGElement>(null)
@@ -173,15 +186,29 @@ function App() {
   },[])
 
   useEffect(()=>{
-    fetch('/assets/catalog.json').then(r=>r.json()).then(async (list:Asset[])=>{
+    fetch('/assets/catalog.json').then(r=>r.json()).then((list:Asset[])=>{
       setAssets(list)
-      const pairs = await Promise.all(list.map(async a=>{
-        try { const txt=await fetch(a.canvas).then(r=>r.text()); return [a.id,`data:image/svg+xml;charset=utf-8,${encodeURIComponent(txt)}`] as const } catch { return [a.id,a.canvas] as const }
-      }))
-      setAssetData(new Map(pairs))
     }).catch(()=>notify('素材目录载入失败，请刷新重试。'))
     loadWorkspace().then(saved=>setWorkspace(saved?.version===1?saved:{version:1,activeBoardId:'',boards:[]})).catch(()=>setWorkspace({version:1,activeBoardId:'',boards:[]}))
   },[notify])
+
+  const loadAssetData = useCallback(async (asset:Asset) => {
+    if (assetData.has(asset.id)) return
+    try {
+      const response=await fetch(asset.canvas)
+      const data=asset.canvas.endsWith('.svg')
+        ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(await response.text())}`
+        : await new Promise<string>((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result));reader.onerror=()=>reject(reader.error);response.blob().then(blob=>reader.readAsDataURL(blob),reject)})
+      setAssetData(current=>{const next=new Map(current);next.set(asset.id,data);return next})
+    } catch { /* 画布仍可使用同源静态 URL 显示 */ }
+  },[assetData])
+
+  useEffect(()=>{
+    if(!board||!assets.length)return
+    const ids=new Set<string>()
+    for(const item of board.items){if(item.assetId)ids.add(item.assetId);for(const child of item.children||[])ids.add(child.assetId)}
+    for(const id of ids){const asset=assetMap.get(id);if(asset&&!assetData.has(id))void loadAssetData(asset)}
+  },[board,assets,assetMap,assetData,loadAssetData])
 
   useEffect(()=>{
     if(!workspace) return
@@ -262,8 +289,11 @@ function App() {
     if(!board)return
     if(asset.category==='frame'&&selected?.kind==='frame'){ commit(b=>({...b,items:b.items.map(i=>i.id===selected.id?{...i,assetId:asset.id}:i)}));notify('已换相框，照片与裁切已保留。');return }
     const w=asset.width,h=asset.height
-    const item:BoardItem={id:uid(),kind:asset.shape==='frame'?'frame':asset.shape==='stitch'?'stitch':asset.shape==='flower'?'group':'asset',assetId:asset.id,x:x??Math.max(20,(board.width-w)/2+(Math.random()-.5)*90),y:y??Math.max(20,(board.height-h)/2+(Math.random()-.5)*70),width:w,height:h,rotation:(Math.random()-.5)*5,opacity:asset.pattern==='半透明'?.82:1}
+    const item:BoardItem={id:uid(),kind:asset.shape==='frame'?'frame':asset.shape==='stitch'?'stitch':['flower','mosaic'].includes(asset.shape)?'group':'asset',assetId:asset.id,x:x??Math.max(20,(board.width-w)/2+(Math.random()-.5)*90),y:y??Math.max(20,(board.height-h)/2+(Math.random()-.5)*70),width:w,height:h,rotation:(Math.random()-.5)*5,opacity:asset.pattern==='半透明'?.82:1}
     if(asset.shape==='flower') item.children=clone(flowerChildren)
+    if(asset.shape==='mosaic') item.children=clone(houseChildren)
+    void loadAssetData(asset)
+    for(const child of item.children||[]){const childAsset=assetMap.get(child.assetId);if(childAsset)void loadAssetData(childAsset)}
     commit(b=>({...b,items:[...b.items,item]}));setSelectedId(item.id);notify(`${asset.name}已放到画布`)
   }
 
@@ -271,6 +301,7 @@ function App() {
   const deleteSelected = ()=>{ if(!selected)return; commit(b=>({...b,items:b.items.filter(i=>i.id!==selected.id)}));setSelectedId(undefined) }
   const layerMove = (front:boolean)=>{ if(!selected)return; commit(b=>{const items=b.items.filter(i=>i.id!==selected.id);return{...b,items:front?[...items,selected]:[selected,...items]}}) }
   const rotateSelected = (delta:number)=>{if(selected)commit(b=>({...b,items:b.items.map(i=>i.id===selected.id?{...i,rotation:i.rotation+delta}:i)}))}
+  const flipSelected = (axis:'x'|'y')=>{if(selected)commit(b=>({...b,items:b.items.map(i=>i.id===selected.id?{...i,[axis==='x'?'flipX':'flipY']:axis==='x'?!i.flipX:!i.flipY}:i)}))}
 
   const splitFlower = ()=>{
     if(!selected||selected.kind!=='group'||!selected.children)return
@@ -334,9 +365,25 @@ function App() {
     };window.addEventListener('keydown',key);return()=>window.removeEventListener('keydown',key)
   },[undo,redo,selectedId,selected,commit])
 
-  const colors=['全部','米白','粉','绿','蓝','棕','紫']
-  const colorMatch=(a:Asset)=>colorFilter==='全部'||({米白:/#(c|d|e|f)/i,粉:/rose|blush|coral|clay|dusty/i,绿:/moss|jade|olive/i,蓝:/indigo|denim|night/i,棕:/linen|sand|wood|amber|cream/i,紫:/violet/i}[colorFilter as Exclude<typeof colorFilter,'全部'>]||/$^/).test(`${a.id} ${a.color}`)
-  const filtered=assets.filter(a=>a.category===tab&&colorMatch(a)&&(patternFilter==='全部'||a.pattern.includes(patternFilter)))
+  const colorOptions=['米白','灰棕','红粉','黄橙','绿色','蓝紫','黑色','多色']
+  const shapeOptions=['方块','三角','椭圆','条带','弧形','花瓣','叶片','波浪边','不规则']
+  const materialOptions=useMemo(()=>[...new Set(assets.filter(a=>a.category==='fabric').map(a=>a.material))].sort(),[assets])
+  const patternOptions=useMemo(()=>[...new Set(assets.filter(a=>a.category==='fabric').map(a=>a.pattern))].sort(),[assets])
+  const toggleFilter=(key:keyof typeof filters,value:string)=>setFilters(current=>({...current,[key]:current[key].includes(value)?current[key].filter(item=>item!==value):[...current[key],value]}))
+  const clearFilters=()=>{setFilters({colors:[],shapes:[],materials:[],patterns:[]});setSearchQuery('')}
+  const activeFilterCount=Object.values(filters).reduce((sum,values)=>sum+values.length,0)+(searchQuery?1:0)
+  const normalizedQuery=searchQuery.trim().toLowerCase()
+  const filtered=useMemo(()=>assets.filter(a=>{
+    if(a.category!==tab)return false
+    if(filters.colors.length&&!filters.colors.some(value=>(a.colors||[]).includes(value)||a.color===value))return false
+    if(filters.shapes.length&&!filters.shapes.includes(a.shapeName))return false
+    if(filters.materials.length&&!filters.materials.includes(a.material))return false
+    if(filters.patterns.length&&!filters.patterns.includes(a.pattern))return false
+    if(normalizedQuery){const hay=[a.name,a.id,a.shapeName,a.material,a.pattern,a.series,...(a.tags||[])].join(' ').toLowerCase();if(!hay.includes(normalizedQuery))return false}
+    return true
+  }),[assets,tab,filters,normalizedQuery])
+  const visibleAssets=filtered.slice(0,visibleLimit)
+  useEffect(()=>setVisibleLimit(40),[filters,searchQuery,tab])
 
   if(!workspace||!board)return <div className="loading-screen"><div className="thread-spool"/><p>正在铺开布料…</p></div>
 
@@ -361,21 +408,32 @@ function App() {
 
     <main className="workspace">
       <aside className={`library ${drawerOpen?'open':'closed'}`}>
-        <div className="library-head"><div><span>素材抽屉</span><small>{assets.length} 件原创布艺零件</small></div><button className="icon-btn" onClick={()=>setDrawerOpen(false)}><PanelLeftClose/></button></div>
+        <div className="library-head"><div><span>素材库</span><small>{assets.filter(a=>a.category==='fabric').length} 块布片 · 40 张基础纹理</small></div><button className="icon-btn" onClick={()=>setDrawerOpen(false)}><PanelLeftClose/></button></div>
         <nav className="asset-tabs" aria-label="素材分类">
           {([['fabric','布片',Layers3],['part','零件',Shapes],['frame','相框',Frame],['inspiration','灵感系列',Sparkles]] as const).map(([id,label,Icon])=><button key={id} className={tab===id?'active':''} onClick={()=>setTab(id)}><Icon/><span>{label}</span></button>)}
         </nav>
-        {tab==='fabric'&&<div className="filters"><div className="filter-row"><span>颜色</span>{colors.map(c=><button key={c} className={colorFilter===c?'active':''} onClick={()=>setColorFilter(c)}>{c}</button>)}</div><select value={patternFilter} onChange={e=>setPatternFilter(e.target.value)} aria-label="纹样筛选"><option>全部</option><option>素色</option><option>格纹</option><option>碎花</option><option>蓝白印花</option><option>半透明</option></select></div>}
+        {tab==='fabric'&&<div className="filters">
+          <div className="asset-search"><Search/><input value={searchQuery} onChange={e=>setSearchQuery(e.target.value)} placeholder="搜索布片、牛仔、格纹…" aria-label="搜索素材"/>{searchQuery&&<button onClick={()=>setSearchQuery('')} aria-label="清除搜索"><X/></button>}</div>
+          <div className="filter-summary"><button className={filterExpanded?'active':''} onClick={()=>setFilterExpanded(v=>!v)}><SlidersHorizontal/>筛选{activeFilterCount?` · ${activeFilterCount}`:''}</button><span>{filtered.length} 件</span>{activeFilterCount>0&&<button onClick={clearFilters}>清除全部</button>}</div>
+          <div className={`filter-panel ${filterExpanded?'expanded':''}`}>
+            <div className="filter-group"><b>颜色</b><div>{colorOptions.map(value=><button key={value} className={filters.colors.includes(value)?'active':''} onClick={()=>toggleFilter('colors',value)}><i className={`color-dot color-${value}`}/>{value}</button>)}</div></div>
+            <div className="filter-group"><b>形状</b><div>{shapeOptions.map(value=><button key={value} className={filters.shapes.includes(value)?'active':''} onClick={()=>toggleFilter('shapes',value)}>{value}</button>)}</div></div>
+            <div className="filter-group"><b>材质</b><div>{materialOptions.map(value=><button key={value} className={filters.materials.includes(value)?'active':''} onClick={()=>toggleFilter('materials',value)}>{value}</button>)}</div></div>
+            <div className="filter-group"><b>纹样</b><div>{patternOptions.map(value=><button key={value} className={filters.patterns.includes(value)?'active':''} onClick={()=>toggleFilter('patterns',value)}>{value}</button>)}</div></div>
+          </div>
+          {activeFilterCount>0&&<div className="active-filters">{Object.entries(filters).flatMap(([key,values])=>values.map(value=><button key={`${key}-${value}`} onClick={()=>toggleFilter(key as keyof typeof filters,value)}>{value}<X/></button>))}</div>}
+        </div>}
         {tab==='inspiration'&&<div className="series-cards"><button onClick={()=>setSeriesInfo('南通蓝印花布灵感')}><i className="indigo-swatch"/><span><b>南通蓝印花布</b><small>蓝白防染花叶与几何边条</small></span></button><button onClick={()=>setSeriesInfo('韩国 Jogakbo 灵感')}><i className="jogakbo-swatch"/><span><b>韩国 Jogakbo</b><small>薄绡布块与窗格式细接缝</small></span></button></div>}
-        <div className="asset-grid">{filtered.map(asset=><button key={asset.id} className="asset-card" onClick={()=>addAsset(asset)} draggable onDragStart={e=>{e.dataTransfer.setData('application/x-pinbu-asset',asset.id);e.dataTransfer.effectAllowed='copy'}}><span className="asset-preview"><img src={asset.thumbnail} alt="" loading="lazy"/></span><b>{asset.name}</b><small>{asset.series==='通用素材'?asset.material:asset.series.replace('灵感','')}</small></button>)}</div>
-        {!filtered.length&&<div className="empty-state">没有匹配的布片，换个筛选试试。</div>}
+        <div className="asset-grid">{visibleAssets.map(asset=><button key={asset.id} className="asset-card" onClick={()=>addAsset(asset)} draggable onDragStart={e=>{e.dataTransfer.setData('application/x-pinbu-asset',asset.id);e.dataTransfer.effectAllowed='copy'}}><span className="asset-preview"><img src={asset.thumbnail} alt="" loading="lazy"/></span><b>{asset.name}</b><small>{asset.shapeName} · {asset.material}</small></button>)}{visibleAssets.length<filtered.length&&<button className="load-more" onClick={()=>setVisibleLimit(limit=>limit+40)}>再看 {Math.min(40,filtered.length-visibleAssets.length)} 件</button>}</div>
+        {!filtered.length&&<div className="empty-state"><b>没有找到合适的布片</b><span>试试减少一个条件，或清空后继续取布。</span><button onClick={clearFilters}>清除筛选</button></div>}
         <footer className="library-foot"><button onClick={()=>setSeriesInfo('sources')}><Link2/>素材来源与许可</button></footer>
       </aside>
 
       <section className="stage-area">
         {!drawerOpen&&<button className="drawer-reopen" onClick={()=>setDrawerOpen(true)}><PanelLeftOpen/>素材</button>}
         <div className="floating-add">
-          <button onClick={()=>photoInput.current?.click()}><ImagePlus/>照片</button><button onClick={openText}><Type/>文字</button>
+          <button onClick={()=>photoInput.current?.click()}><ImagePlus/>照片</button><button onClick={openText}><Type/>文字</button><button onClick={()=>setShowBackground(v=>!v)}><Palette/>底布</button>
+          {showBackground&&<div className="background-palette"><b>画布底布</b>{['#f5f0e6','#e7dbca','#d9cbb7','#d7ddd1','#d9dce3','#d8c8c8','#383633'].map(color=><button key={color} style={{background:color}} className={board.background===color?'active':''} onClick={()=>{commit(b=>({...b,background:color}));setShowBackground(false)}} aria-label={`底布颜色 ${color}`}/>)}</div>}
         </div>
         <svg ref={svgRef} className={`stage-svg ${panMode?'pan-mode':''}`} viewBox={`0 0 ${STAGE_W} ${STAGE_H}`} onPointerDown={onStageDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp} onDragOver={e=>e.preventDefault()} onDrop={onDrop} role="application" aria-label="拼布画布">
           <rect width={STAGE_W} height={STAGE_H} fill="#cfc5b6"/>
@@ -388,7 +446,7 @@ function App() {
           {selected.kind==='frame'&&<><button onClick={()=>photoInput.current?.click()}><ImagePlus/>换照片</button><button className={cropMode?'active':''} onClick={()=>setCropMode(v=>!v)}><MousePointer2/>调整照片</button></>}
           {selected.kind==='text'&&<button onClick={openText}><Type/>编辑</button>}
           {selected.kind==='group'&&<button onClick={splitFlower}><Scissors/>拆开</button>}
-          <button onClick={duplicateSelected}><Copy/>复制</button><button onClick={()=>rotateSelected(-15)} aria-label="向左旋转"><RotateCcw/></button><button onClick={()=>rotateSelected(15)} aria-label="向右旋转"><RotateCw/></button><button onClick={()=>layerMove(true)}><BringToFront/>前移</button><button onClick={()=>layerMove(false)}><SendToBack/>后移</button><button className="danger" onClick={deleteSelected}><Trash2/>删除</button>
+          <button onClick={duplicateSelected}><Copy/>复制</button><button onClick={()=>rotateSelected(-15)} aria-label="向左旋转"><RotateCcw/></button><button onClick={()=>rotateSelected(15)} aria-label="向右旋转"><RotateCw/></button>{selected.kind!=='text'&&<><button onClick={()=>flipSelected('x')}><FlipHorizontal/>水平翻转</button><button onClick={()=>flipSelected('y')}><FlipVertical/>垂直翻转</button></>}<button onClick={()=>layerMove(true)}><BringToFront/>前移</button><button onClick={()=>layerMove(false)}><SendToBack/>后移</button><button className="danger" onClick={deleteSelected}><Trash2/>删除</button>
         </div>}
         {cropMode&&selected&&(selected.kind==='frame'||selected.kind==='photo')&&<div className="crop-toolbar"><b>调整框内照片</b><button onClick={()=>cropAdjust(-12,0)}>←</button><button onClick={()=>cropAdjust(12,0)}>→</button><button onClick={()=>cropAdjust(0,-12)}>↑</button><button onClick={()=>cropAdjust(0,12)}>↓</button><button onClick={()=>cropAdjust(0,0,-.1)}><Minus/></button><button onClick={()=>cropAdjust(0,0,.1)}><Plus/></button><button onClick={()=>setCropMode(false)}><Check/>完成</button></div>}
       </section>
@@ -400,7 +458,7 @@ function App() {
 
     {showText&&<div className="modal-backdrop" onMouseDown={()=>setShowText(false)}><div className="modal text-modal" onMouseDown={e=>e.stopPropagation()}><div className="modal-head"><div><small>添加文字</small><h2>给这一页留句话</h2></div><button onClick={()=>setShowText(false)}>×</button></div><textarea autoFocus value={textDraft} onChange={e=>setTextDraft(e.target.value)} rows={4}/><div className="text-options"><label>字号 <input type="range" min="14" max="72" value={textSize} onChange={e=>setTextSize(Number(e.target.value))}/><span>{textSize}</span></label><label>颜色 <input type="color" value={textColor} onChange={e=>setTextColor(e.target.value)}/></label></div><div className="modal-actions"><button onClick={()=>setShowText(false)}>取消</button><button className="primary-btn" onClick={addText}>放到画布</button></div></div></div>}
     {showHelp&&<div className="modal-backdrop" onMouseDown={()=>setShowHelp(false)}><div className="modal help-modal" onMouseDown={e=>e.stopPropagation()}><div className="modal-head"><div><small>三步就能开始</small><h2>这里没有复杂的门槛</h2></div><button onClick={()=>setShowHelp(false)}>×</button></div><div className="help-steps"><div><b>01</b><span><strong>点素材，或拖进画布</strong><small>选中后可移动，拖右下角缩放，拖顶部圆点旋转。</small></span></div><div><b>02</b><span><strong>把自己的照片放进来</strong><small>先选相框再点“照片”，也可直接把图片拖到相框。</small></span></div><div><b>03</b><span><strong>下载 PNG 或项目备份</strong><small>不注册，照片不上传。项目文件可在另一浏览器继续编辑。</small></span></div></div><div className="shortcut-list"><span>⌘/Ctrl Z 撤销</span><span>Delete 删除</span><span>方向键微移</span><span>Shift + 方向键 10px</span></div><div className="modal-actions"><button onClick={()=>projectInput.current?.click()}><Upload/>导入项目</button><button className="primary-btn" onClick={()=>setShowHelp(false)}>开始拼布</button></div></div></div>}
-    {seriesInfo&&<div className="modal-backdrop" onMouseDown={()=>setSeriesInfo(undefined)}><div className="modal source-modal" onMouseDown={e=>e.stopPropagation()}><div className="modal-head"><div><small>工艺线索，而非风格标签</small><h2>{seriesInfo==='sources'?'素材来源与许可':seriesInfo}</h2></div><button onClick={()=>setSeriesInfo(undefined)}>×</button></div>{seriesInfo.includes('南通')&&<><p>南通蓝印花布以棉布、靛蓝与防染印花见长。公开资料介绍了以纸版施加防染浆，再反复浸染、氧化形成蓝白纹样的过程。</p><p>本站用原创 SVG 表现花叶、团花、几何纹样和窄边条；没有复制馆藏或社交媒体图片。</p><a href="https://folklife.si.edu/magazine/blue-calico-cloth-nantong-china" target="_blank">史密森尼民俗与文化遗产中心 · 阅读一手资料 ↗</a></>}{seriesInfo.includes('Jogakbo')&&<><p>Jogakbo 是把剩余布片缝成包袱布（bojagi）的拼布方式。棉、丝、苎麻或麻片经平整接缝组成不规则、即兴的窗格式结构。</p><p>本站用原创半透明布块、细接缝与拼接小样表现这些特征；V&A 馆藏图像未入库。</p><a href="https://www.vam.ac.uk/articles/jogakbo-traditional-korean-patchwork" target="_blank">V&amp;A · 阅读一手资料 ↗</a></>}{seriesInfo==='sources'&&<><p>首版 36 件内置素材全部由本项目原创绘制，采用 CC BY 4.0；代码使用 MIT License。参考截图仅用于观察构图与手作视觉语言，不在仓库中再分发。</p><p>每项素材的 ID、系列、许可、署名与加工记录位于 <code>public/assets/catalog.json</code>。完整说明见源码中的 <code>ASSETS.md</code> 与 <code>SOURCES.md</code>。</p><a href="https://www.metmuseum.org/policies/frequently-asked-questions-image-and-data-resources" target="_blank">The Met · Open Access 判断原则 ↗</a></>}</div></div>}
+    {seriesInfo&&<div className="modal-backdrop" onMouseDown={()=>setSeriesInfo(undefined)}><div className="modal source-modal" onMouseDown={e=>e.stopPropagation()}><div className="modal-head"><div><small>工艺线索，而非风格标签</small><h2>{seriesInfo==='sources'?'素材来源与许可':seriesInfo}</h2></div><button onClick={()=>setSeriesInfo(undefined)}>×</button></div>{seriesInfo.includes('南通')&&<><p>南通蓝印花布以棉布、靛蓝与防染印花见长。公开资料介绍了以纸版施加防染浆，再反复浸染、氧化形成蓝白纹样的过程。</p><p>本站用原创 SVG 表现花叶、团花、几何纹样和窄边条；没有复制馆藏或社交媒体图片。</p><a href="https://folklife.si.edu/magazine/blue-calico-cloth-nantong-china" target="_blank">史密森尼民俗与文化遗产中心 · 阅读一手资料 ↗</a></>}{seriesInfo.includes('Jogakbo')&&<><p>Jogakbo 是把剩余布片缝成包袱布（bojagi）的拼布方式。棉、丝、苎麻或麻片经平整接缝组成不规则、即兴的窗格式结构。</p><p>本站用原创半透明布块、细接缝与拼接小样表现这些特征；V&A 馆藏图像未入库。</p><a href="https://www.vam.ac.uk/articles/jogakbo-traditional-korean-patchwork" target="_blank">V&amp;A · 阅读一手资料 ↗</a></>}{seriesInfo==='sources'&&<><div className="source-stats"><b>140</b><span>可拼布片</span><b>40</b><span>基础纹理</span><b>120</b><span>透明 WebP 加工件</span></div><p>24 张基础纹理来自 Poly Haven、16 张来自 ambientCG，均从官方 API 与原始下载地址取得并逐项记录为 CC0。另有 20 件原创 SVG 基础布片，采用 CC BY 4.0；代码使用 MIT License。</p><p>参考截图只用于观察构图和手作语言，不在仓库中再分发。逐项来源、下载地址、哈希、加工记录与许可位于 <code>assets/sources/source-manifest.json</code> 和 <code>public/assets/catalog.json</code>。</p><div className="source-links"><a href="/assets/fabric-overview.webp" target="_blank">打开 120 件透明布片总览 ↗</a><a href="https://polyhaven.com/license" target="_blank">Poly Haven · CC0 许可 ↗</a><a href="https://docs.ambientcg.com/license/" target="_blank">ambientCG · CC0 许可 ↗</a></div></>}</div></div>}
     {toast&&<div className="toast" role="status">{toast}</div>}
   </div>
 }

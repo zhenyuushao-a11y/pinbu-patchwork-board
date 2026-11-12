@@ -6,7 +6,6 @@
 
 ```bash
 pnpm install
-pnpm generate:assets
 pnpm dev
 ```
 
@@ -22,8 +21,9 @@ pnpm preview
 ## 已实现
 
 - 默认原创示例板、空白板与横/竖/方三种尺寸
-- 布片、零件、相框、灵感系列四类素材；颜色和纹样筛选
-- 点按或桌面拖放添加，物件移动、旋转、缩放、复制、删除、层级调整
+- 140 件可拼布片：120 件由 40 张 CC0 基础纹理加工，另有 20 件原创 SVG 布片
+- 布片、零件、相框、灵感系列四类素材；颜色、形状、材质、纹样多选组合与关键词搜索
+- 点按或桌面拖放添加，物件移动、旋转、缩放、水平/垂直翻转、复制、删除、层级调整
 - 可拆开的预组合布花；拆开保持视觉位置并支持撤销恢复
 - 双端可调的独立针脚线
 - JPG/PNG/WebP 文件选择与拖放；照片独立放置或落入相框
@@ -33,7 +33,7 @@ pnpm preview
 - IndexedDB 自动保存，多作品互不覆盖，刷新恢复
 - 2× 高清 PNG 导出；包含用户照片的 `.pinbu.json` 项目导入导出
 - 损坏图片、HEIC、无效项目和保存/导出失败的中文错误提示
-- 响应式桌面与移动端素材抽屉
+- 可更换画布底布；响应式桌面与移动端素材抽屉及折叠筛选面板
 
 ## 本地数据与隐私
 
@@ -44,9 +44,25 @@ pnpm preview
 - [ASSETS.md](./ASSETS.md)：内置素材许可、目录字段和贡献步骤
 - [SOURCES.md](./SOURCES.md)：工艺资料、视觉关系与使用边界
 - `public/assets/catalog.json`：逐项机器可读清单
-- `scripts/generate-assets.mjs`：36 件原创 SVG 的可复现生成源
+- `assets/sources/source-manifest.json`：40 张基础纹理的来源、下载地址、许可、查验日期、哈希与本地原图
+- `public/assets/fabric-overview.webp`：120 件透明加工布片的浅/深底总览
+- `scripts/fetch-textures.mjs`：从两个官方 API 下载已选 CC0 原图
+- `scripts/process-textures.py`：透明蒙版、抗锯齿毛边、缩略图和标签生成流程
+- `scripts/generate-assets.mjs`：原创 SVG 与正式目录合并流程
 
-代码使用 MIT License；内置 SVG 素材使用 CC BY 4.0。截图仅作为视觉参考，未入库。
+代码使用 MIT License；原创 SVG 素材使用 CC BY 4.0；Poly Haven 与 ambientCG 基础纹理及其加工件为 CC0。截图仅作为视觉参考，未入库。
+
+## 重新获取与加工素材
+
+仓库已包含可直接运行网站所需的本地素材，日常安装不需要联网重新下载。需要复现素材流水线时：
+
+```bash
+pnpm fetch:textures
+pnpm process:textures
+pnpm test
+```
+
+第一次命令会访问 Poly Haven 与 ambientCG 官方 API。第二步需要 Python 3 与 Pillow。
 
 ## 技术说明
 
@@ -58,3 +74,4 @@ React + TypeScript + Vite。编辑器以可序列化的 SVG 场景实现，作�
 - 照片以 data URL 存在本地数据库；非常多超大照片可能触及浏览器配额，导入时会把最长边超过 2600px 的图片压缩。
 - 首版相框裁切用方向与缩放按钮操作，未提供框内照片直接拖拽。
 - 纯前端本地版本不含账号或云同步；项目文件是跨设备继续编辑的方式。
+- 40 张基础纹理都来自 CC0 资源库；首版没有使用来源条款不够清楚的独立碎布照片。

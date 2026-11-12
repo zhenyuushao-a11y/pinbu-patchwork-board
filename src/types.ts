@@ -1,5 +1,5 @@
 export type AssetCategory = 'fabric' | 'part' | 'frame' | 'inspiration'
-export type AssetShape = 'rect' | 'petal' | 'leaf' | 'button' | 'stitch' | 'label' | 'frame' | 'flower' | 'jogakbo'
+export type AssetShape = 'square' | 'triangle' | 'oval' | 'strip' | 'petal' | 'leaf' | 'arch' | 'irregular' | 'wave' | 'button' | 'stitch' | 'label' | 'frame' | 'flower' | 'jogakbo' | 'mosaic'
 
 export interface Asset {
   id: string
@@ -11,16 +11,22 @@ export interface Asset {
   material: string
   series: '通用素材' | '南通蓝印花布灵感' | '韩国 Jogakbo 灵感'
   shape: AssetShape
+  shapeName: string
   width: number
   height: number
   thumbnail: string
   canvas: string
-  sourceType: '原创绘制'
+  sourceType: '原创绘制' | '开放纹理加工'
+  sourceId?: string
   author: string
   sourceUrl: string
-  license: 'CC BY 4.0'
+  license: string
+  licenseUrl?: string
   attribution: string
   processing: string
+  tags?: string[]
+  edge?: string
+  transparent?: boolean
 }
 
 export type ItemKind = 'asset' | 'frame' | 'photo' | 'text' | 'stitch' | 'group'
@@ -44,6 +50,8 @@ export interface BoardItem {
   height: number
   rotation: number
   opacity: number
+  flipX?: boolean
+  flipY?: boolean
   text?: string
   fontSize?: number
   color?: string
