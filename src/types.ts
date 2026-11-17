@@ -9,14 +9,14 @@ export interface Asset {
   colors: string[]
   pattern: string
   material: string
-  series: '通用素材' | '南通蓝印花布灵感' | '韩国 Jogakbo 灵感'
+  series: string
   shape: AssetShape
   shapeName: string
   width: number
   height: number
   thumbnail: string
   canvas: string
-  sourceType: '原创绘制' | '开放纹理加工'
+  sourceType: '原创绘制' | '开放纹理加工' | '生成素材' | '私人参考加工'
   sourceId?: string
   author: string
   sourceUrl: string
@@ -29,7 +29,27 @@ export interface Asset {
   transparent?: boolean
 }
 
-export type ItemKind = 'asset' | 'frame' | 'photo' | 'text' | 'stitch' | 'group'
+export type ItemKind = 'asset' | 'frame' | 'photo' | 'text' | 'stitch' | 'drawnStitch' | 'group'
+export type CutShape = 'square' | 'triangle' | 'circle' | 'strip' | 'petal' | 'leaf' | 'arch' | 'wave' | 'freehand'
+export type CreationMode = 'guided' | 'trace' | 'free'
+export type TraceMode = 'outline' | 'blocks' | 'manual'
+export type StitchStyle = 'running' | 'cross' | 'blanket' | 'chain'
+
+export interface PathPoint {
+  x: number
+  y: number
+}
+
+export interface BoardGuide {
+  imageData: string
+  sourceData?: string
+  name: string
+  mode: TraceMode
+  opacity: number
+  visible: boolean
+  scale?: number
+  rotation?: number
+}
 
 export interface ChildItem {
   assetId: string
@@ -61,6 +81,19 @@ export interface BoardItem {
   cropY?: number
   cropScale?: number
   children?: ChildItem[]
+  cutShape?: CutShape
+  cutPath?: string
+  textureScale?: number
+  textureX?: number
+  textureY?: number
+  points?: PathPoint[]
+  stitchBasePoints?: PathPoint[]
+  stitchStyle?: StitchStyle
+  strokeColor?: string
+  strokeWidth?: number
+  stitchSpacing?: number
+  stitchInset?: number
+  autoSourceId?: string
 }
 
 export interface Board {
@@ -71,7 +104,15 @@ export interface Board {
   height: number
   format: 'landscape' | 'portrait' | 'square'
   background: string
+  backgroundImage?: string
+  backgroundImageName?: string
+  backgroundFit?: 'cover' | 'contain' | 'stretch'
+  backgroundOpacity?: number
   items: BoardItem[]
+  guide?: BoardGuide
+  creationMode?: CreationMode
+  tutorialId?: 'flower' | 'house'
+  coachDismissed?: boolean
   createdAt: string
   updatedAt: string
 }
@@ -80,4 +121,6 @@ export interface SavedState {
   version: 1
   activeBoardId: string
   boards: Board[]
+  userFabrics?: Asset[]
+  onboardingSeen?: boolean
 }

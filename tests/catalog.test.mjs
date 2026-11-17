@@ -4,9 +4,10 @@ import { access, readFile } from 'node:fs/promises'
 
 const catalog = JSON.parse(await readFile(new URL('../public/assets/catalog.json', import.meta.url), 'utf8'))
 const sources = JSON.parse(await readFile(new URL('../assets/sources/source-manifest.json', import.meta.url), 'utf8'))
+const privateSources = JSON.parse(await readFile(new URL('../assets/private-source/manifest.json', import.meta.url), 'utf8'))
 
 test('内置素材目录完整且 ID 唯一', () => {
-  assert.equal(catalog.filter((item) => item.category === 'fabric').length, 140)
+  assert.equal(catalog.filter((item) => item.category === 'fabric').length, 452)
   assert.equal(new Set(catalog.map((item) => item.id)).size, catalog.length)
   for (const item of catalog) {
     for (const field of ['id','name','category','color','shape','shapeName','pattern','material','series','thumbnail','canvas','sourceType','author','license','processing']) {
@@ -40,12 +41,33 @@ test('40 张 CC0 基础纹理均有来源、哈希与本地原图', async () => 
   }
 })
 
+test('私人素材包由 48 种基础布生成 432 件透明布片', async () => {
+  assert.equal(privateSources.baseSources, 48)
+  assert.equal(privateSources.generatedPieces, 432)
+  assert.equal(new Set(privateSources.sources.map((item) => item.id)).size, 48)
+  for (const source of privateSources.sources) {
+    assert.equal(source.sourceType, '生成素材')
+    await access(new URL(`../${source.extractedFile}`, import.meta.url))
+  }
+})
+
 test('加工布片覆盖目标颜色、形状、材质和透明格式', () => {
   const fabrics=catalog.filter((item) => item.category === 'fabric')
   for (const value of ['米白','灰棕','红粉','黄橙','绿色','蓝紫','黑色','多色']) assert.ok(fabrics.some((item)=>item.color===value),`缺少颜色 ${value}`)
   for (const value of ['方块','三角','椭圆','条带','弧形','花瓣','叶片','波浪边','不规则']) assert.ok(fabrics.some((item)=>item.shapeName===value),`缺少形状 ${value}`)
   for (const value of ['棉布','亚麻','牛仔','毛呢','缎面','纱类']) assert.ok(fabrics.some((item)=>item.material.includes(value)),`缺少材质 ${value}`)
-  const processed=fabrics.filter((item)=>item.sourceType==='开放纹理加工')
-  assert.equal(processed.length,120)
+  const processed=fabrics.filter((item)=>item.sourceType==='生成素材')
+  assert.equal(processed.length,432)
   assert.ok(processed.every((item)=>item.transparent&&item.canvas.endsWith('.webp')&&item.thumbnail.endsWith('.webp')))
+})
+
+test('新材料台能把预裁片还原为不重复的基础布料', () => {
+  const fabrics=catalog.filter((item)=>item.category==='fabric')
+  const bases=new Set(fabrics.map((item)=>item.sourceId||item.id))
+  assert.ok(bases.size>=60,`基础布料过少：${bases.size}`)
+  assert.ok(bases.size<fabrics.length/4,'预裁形状没有被正确归并')
+  for(const key of bases){
+    const members=fabrics.filter((item)=>(item.sourceId||item.id)===key)
+    assert.ok(members.some((item)=>item.shape==='square')||members.length===1,`${key} 缺少可用的基础预览`)
+  }
 })

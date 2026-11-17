@@ -5,9 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
+    "dev:lan": "vite --host 0.0.0.0",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1",
+    "preview:lan": "vite preview --host 0.0.0.0",
     "generate:assets": "node scripts/generate-assets.mjs",
+    "generate:private-assets": "python3 scripts/build-private-fabric-pack.py && node scripts/generate-assets.mjs && python3 scripts/build-overview.py",
     "fetch:textures": "node scripts/fetch-textures.mjs",
     "process:textures": "python3 scripts/process-textures.py && python3 scripts/build-overview.py && node scripts/generate-assets.mjs",
     "test": "node --test tests/*.test.mjs"

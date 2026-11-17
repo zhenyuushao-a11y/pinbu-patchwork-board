@@ -87,11 +87,19 @@ for (const a of assets) {
   const colorName=colorCategory(id,color)
   catalog.push({id,name,category,color:colorName,colors:[colorName],palette:colors,pattern,material,series,shape:normalizedShape,shapeName:shape==='rect'?(height<85?'条带':'方块'):(shapeNames[shape]||shape),width,height,thumbnail:url,canvas:url,sourceId:`original-${id}`,sourceType:'原创绘制',author:'拼布项目贡献者',sourceUrl:'',license:'CC BY 4.0',licenseUrl:'https://creativecommons.org/licenses/by/4.0/',attribution:'“拼布”内置原创素材，CC BY 4.0',processing:'基于公开工艺资料提炼视觉特征后，以 SVG 原创建模；未复制馆藏或社交媒体图片。',tags:[name,colorName,pattern,material,series,shapeNames[shape]||shape],transparent:true})
 }
+let privateBaseSources = 0
 try {
-  const processed = JSON.parse(await readFile('public/assets/texture-pieces.json','utf8'))
+  const processed = JSON.parse(await readFile('public/assets/private-texture-pieces.json','utf8'))
   catalog.unshift(...processed)
-} catch {}
+  const manifest = JSON.parse(await readFile('assets/private-source/manifest.json','utf8'))
+  privateBaseSources = manifest.baseSources || 0
+} catch {
+  try {
+    const processed = JSON.parse(await readFile('public/assets/texture-pieces.json','utf8'))
+    catalog.unshift(...processed)
+  } catch {}
+}
 await writeFile('public/assets/catalog.json', JSON.stringify(catalog, null, 2))
-const stats={total:catalog.length,fabric:catalog.filter(x=>x.category==='fabric').length,parts:catalog.filter(x=>x.category==='part').length,frames:catalog.filter(x=>x.category==='frame').length,inspiration:catalog.filter(x=>x.category==='inspiration').length,baseSources:40,transparent:catalog.filter(x=>x.transparent).length}
+const stats={total:catalog.length,fabric:catalog.filter(x=>x.category==='fabric').length,parts:catalog.filter(x=>x.category==='part').length,frames:catalog.filter(x=>x.category==='frame').length,inspiration:catalog.filter(x=>x.category==='inspiration').length,baseSources:privateBaseSources||40,transparent:catalog.filter(x=>x.transparent).length,privatePack:Boolean(privateBaseSources)}
 await writeFile('public/assets/stats.json',JSON.stringify(stats,null,2))
 console.log(`Generated catalog with ${catalog.length} assets (${stats.fabric} fabric pieces).`)

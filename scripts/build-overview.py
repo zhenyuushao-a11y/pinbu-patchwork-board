@@ -3,8 +3,10 @@ from pathlib import Path
 from PIL import Image, ImageDraw
 
 ROOT=Path(__file__).resolve().parents[1]
-items=json.loads((ROOT/'public/assets/texture-pieces.json').read_text())
-cols,cell_w,cell_h=10,180,145
+private_catalog=ROOT/'public/assets/private-texture-pieces.json'
+catalog=private_catalog if private_catalog.exists() else ROOT/'public/assets/texture-pieces.json'
+items=json.loads(catalog.read_text())
+cols,cell_w,cell_h=12,150,122
 rows=math.ceil(len(items)/cols)
 sheet=Image.new('RGB',(cols*cell_w,rows*cell_h),(241,235,224))
 d=ImageDraw.Draw(sheet)
@@ -16,6 +18,6 @@ for index,item in enumerate(items):
     im.thumbnail((cell_w-16,cell_h-20),Image.Resampling.LANCZOS)
     px=x+(cell_w-im.width)//2;py=y+(cell_h-im.height)//2-5
     sheet.paste(im,(px,py),im)
-    d.text((x+6,y+cell_h-15),item['id'].replace('tex-','')[:26],fill=(54,48,43))
+    d.text((x+6,y+cell_h-14),item['id'].replace('private-','')[:22],fill=(54,48,43))
 sheet.save(ROOT/'public/assets/fabric-overview.webp','WEBP',quality=84,method=5)
 print(f'Overview: {len(items)} pieces, {sheet.width}×{sheet.height}')

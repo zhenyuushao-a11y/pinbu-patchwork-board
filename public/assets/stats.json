@@ -1,9 +1,10 @@
 {
-  "total": 157,
-  "fabric": 140,
+  "total": 469,
+  "fabric": 452,
   "parts": 10,
   "frames": 3,
   "inspiration": 4,
-  "baseSources": 40,
-  "transparent": 157
+  "baseSources": 48,
+  "transparent": 469,
+  "privatePack": true
 }

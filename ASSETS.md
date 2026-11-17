@@ -5,6 +5,9 @@
 - `public/assets/items/`：原创 SVG 零件与基础布片，**CC BY 4.0**，署名建议为“拼布项目贡献者”。
 - `assets/sources/base/`：24 张 Poly Haven、16 张 ambientCG 基础纹理，均为 **CC0 1.0**。
 - `public/assets/fabrics/` 与 `public/assets/thumbs/`：由上述 CC0 纹理裁切加工的 120 件透明 WebP，沿用 CC0。
+- `assets/private-source/sheets/`：4 张根据用户审美参考生成的私人素材表，不是社交媒体原图。
+- `assets/private-source/extracted/`：从素材表分离出的 48 种基础布纹。
+- `public/assets/private-fabrics/` 与 `public/assets/private-thumbs/`：由 48 种基础布纹生成的 432 件透明 WebP，当前仅用于本地学习版本。
 - 用户导入照片：只属于用户，不适用仓库许可。
 
 字体使用访客设备的系统中文字体，不随项目分发。
@@ -13,21 +16,23 @@
 
 ## 当前统计
 
-- 157 件目录素材
-- 140 件可拼布片：120 件透明 WebP + 20 件原创 SVG
-- 40 张不同基础纹理：Poly Haven 24，ambientCG 16
+- 469 件目录素材
+- 452 件可拼布片：432 件新版透明 WebP + 20 件原创 SVG
+- 48 种新版基础布纹，分为旧布花园、乡居格纹、暮色植物、靛蓝与薄绡四个系列
 - 9 种轮廓：方块、三角、椭圆、条带、弧形、花瓣、叶片、波浪边、不规则
 - 颜色覆盖：米白、灰棕、红粉、黄橙、绿色、蓝紫、黑色、多色
 - 材质覆盖：棉布、亚麻、牛仔、毛呢、缎面、纱类、针织、毛绒、灯芯绒、弹力织物等
 - 10 件独立零件、3 款相框、4 件灵感小样
 
-`public/assets/fabric-overview.webp` 在每个单元内同时使用浅色和深色背景，用于检查透明边缘、白边和轮廓辨识度。
+`public/assets/fabric-overview.webp` 在每个单元内同时使用浅色和深色背景，用于检查 432 件新版布片的透明边缘、白边和轮廓辨识度。
 
 ## 加入新素材
 
-1. 将来源原图放入 `assets/sources/base/`，或将原创透明底 SVG/PNG 放入 `public/assets/items/`；避免烘焙方向性阴影。
+1. 将可用基础布放入 `assets/sources/base/`，私人素材表放入 `assets/private-source/sheets/`，或将原创透明底 SVG/PNG 放入 `public/assets/items/`；避免烘焙方向性阴影。
 2. 在 `assets/sources/source-manifest.json` 登记来源、下载地址、作者、许可、条款链接、查验日期、哈希和加工说明。
 3. 如素材不是原创，填写真实 `sourceUrl`、作者、精确许可与署名要求，并确认许可允许随源码再分发和加工。
-4. 执行 `pnpm process:textures` 后在素材抽屉和总览中检查缩略图、透明边缘、重复性及放大清晰度。
+4. 公开纹理执行 `pnpm process:textures`；私人素材表执行 `python3 scripts/build-private-fabric-pack.py`，再运行目录生成和总览脚本。最后在素材抽屉与总览中检查缩略图、透明边缘、重复性及放大清晰度。
+
+私人素材包没有沿用代码的 MIT License，也不等同于 CC0/CC BY。当前约定为组内、本机学习与原型验证；若将新版重新部署到公开网址，需要先确认并更新素材条款。
 
 用户导入的照片只保存在用户浏览器的 IndexedDB 和主动下载的项目文件中，不会上传到服务器，也不适用本仓库许可。
