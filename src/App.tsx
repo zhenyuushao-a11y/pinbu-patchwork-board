@@ -19,6 +19,16 @@ const uid = () => typeof globalThis.crypto?.randomUUID === 'function'
 const clone = <T,>(value: T): T => structuredClone(value)
 const now = () => new Date().toISOString()
 const STITCH_LABELS:Record<StitchStyle,string>={running:'平针',cross:'十字针',blanket:'锁边针',chain:'链式针'}
+const TOUR_STEPS=[
+  {id:'welcome',title:'30 秒认识拼布工作台',body:'跟着高亮区域走一遍，就能开始创作。不需要现在记住全部功能，之后也能从“帮助”重新打开。'},
+  {id:'library',selector:'[data-tour="library"]',title:'第一步：从材料台选布',body:'可以按颜色、材质和纹样筛选。点一下直接加入，或把布拖到画布；“上传我的布料”可以收进自己的布。'},
+  {id:'canvas',selector:'[data-tour="canvas"]',title:'第二步：在画布上自由拼',body:'拖动物件来摆放；触控板双指滑动平移，捏合缩放；点空白处可取消选中。'},
+  {id:'add',selector:'[data-tour="add-tools"]',title:'照片、文字、底布和针脚都在这里',body:'这里可以画缝线、上传照片、添加手写文字、更换背景，也能打开全部图层。'},
+  {id:'edit',selector:'[data-tour="selection"]',fallbackSelector:'[data-tour="canvas"]',title:'选中物件后再精细编辑',body:'选中布片或照片后，工具栏会出现缩放、旋转、裁剪、自动缝边、复制、翻转、层级和删除。画布上的圆点也能直接缩放与旋转。'},
+  {id:'layers',selector:'[data-tour="layers"]',title:'找不到物件时，打开图层',body:'图层列表按前后顺序显示全部素材、文字、照片、缝线和纸样。点一行就能立即定位并选中。'},
+  {id:'view',selector:'[data-tour="view"]',title:'随时回到全景',body:'左下角可以平移、缩放和回到全景；右下角切换横版、方版或竖版。'},
+  {id:'export',selector:'[data-tour="top-actions"]',title:'自动保存，完成后从顶部导出',body:'作品会自动保存在当前浏览器。顶部可以撤销、重做，并导出完整 PNG 或项目文件发给组员继续编辑。'},
+] as const
 const TEXT_FONTS:Record<TextFont,{label:string;stack:string}>={
   hand:{label:'手写体',stack:'"Kaiti SC", "STKaiti", "KaiTi", "DFKai-SB", cursive'},
   serif:{label:'宋体',stack:'"Songti SC", "STSong", "Noto Serif CJK SC", serif'},
@@ -335,6 +345,8 @@ function App() {
   const [cropMode,setCropMode] = useState(false)
   const [showBackground,setShowBackground] = useState(false)
   const [showStart,setShowStart] = useState(false)
+  const [tourStep,setTourStep] = useState<number>()
+  const [tourRect,setTourRect] = useState<{left:number;top:number;width:number;height:number;right:number;bottom:number}>()
   const [showTrace,setShowTrace] = useState(false)
   const [traceSource,setTraceSource] = useState<{data:string;name:string}>()
   const [tracePreview,setTracePreview] = useState('')
@@ -389,6 +401,7 @@ function App() {
       setAssets([...list,...(next.userFabrics||[])])
       setWorkspace(next)
       setShowStart(!next.onboardingSeen)
+      if(next.onboardingSeen&&!next.tutorialSeen)setTourStep(0)
     }).catch(()=>{setWorkspace({version:1,activeBoardId:'',boards:[],userFabrics:[],onboardingSeen:false});setShowStart(true);notify('工作台部分数据载入失败，已为你打开空白板。')})
   },[notify])
 
@@ -402,6 +415,23 @@ function App() {
     window.addEventListener('resize',measure)
     return()=>{observer?.disconnect();window.removeEventListener('resize',measure)}
   },[board?.id])
+
+  useEffect(()=>{
+    if(tourStep===undefined)return
+    const step=TOUR_STEPS[tourStep]
+    if(step.id==='library'&&!drawerOpen)setDrawerOpen(true)
+    if(step.id==='edit'&&!selectedId&&board?.items.length)setSelectedId(board.items[0].id)
+    const update=()=>{
+      const primary='selector' in step?document.querySelector<HTMLElement>(step.selector):null
+      const fallback=!primary&&'fallbackSelector' in step?document.querySelector<HTMLElement>(step.fallbackSelector):null
+      const rect=(primary||fallback)?.getBoundingClientRect()
+      setTourRect(rect&&rect.width>0&&rect.height>0?{left:rect.left,top:rect.top,width:rect.width,height:rect.height,right:rect.right,bottom:rect.bottom}:undefined)
+    }
+    const frame=requestAnimationFrame(update)
+    const timer=window.setTimeout(update,180)
+    window.addEventListener('resize',update)
+    return()=>{cancelAnimationFrame(frame);clearTimeout(timer);window.removeEventListener('resize',update)}
+  },[tourStep,drawerOpen,selectedId,board?.id,board?.items.length])
 
   useEffect(()=>{
     if(!traceSource||!showTrace)return
@@ -697,11 +727,13 @@ function App() {
   const exportProject=()=>{if(board&&workspace){const usedIds=new Set(board.items.map(item=>item.assetId).filter(Boolean));const bundle={kind:'pinbu-project',version:1,exportedAt:now(),board,userFabrics:(workspace.userFabrics||[]).filter(asset=>usedIds.has(asset.id))};fileDownload(new Blob([JSON.stringify(bundle,null,2)],{type:'application/json'}),`${safeName(board.title)}.pinbu.json`)}}
   const importProject=async(file?:File)=>{if(!file||!workspace)return;try{const value=JSON.parse(await file.text());const candidate=value?.kind==='pinbu-project'?value.board:value;if(!validateImportedProject(candidate))throw new Error();const imported={...candidate,id:uid(),title:`${candidate.title}（导入）`,createdAt:now(),updatedAt:now()};const incoming:Array<Asset>=Array.isArray(value?.userFabrics)?value.userFabrics:[];const existing=new Set(assets.map(asset=>asset.id));const safeIncoming=incoming.filter(asset=>asset&&typeof asset.id==='string'&&typeof asset.canvas==='string'&&!existing.has(asset.id));setAssets(current=>[...current,...safeIncoming]);setWorkspace({...workspace,userFabrics:[...(workspace.userFabrics||[]),...safeIncoming],activeBoardId:imported.id,boards:[...workspace.boards,imported]});setHistory([]);setFuture([]);setSelectedId(undefined);notify(`项目已导入${safeIncoming.length?`，包含 ${safeIncoming.length} 种自定义布料`:''}。`)}catch{notify('项目文件无效，当前作品没有改变。')}}
 
-  const activateNewBoard=(b:Board)=>{if(!workspace)return;setWorkspace({...workspace,onboardingSeen:true,activeBoardId:b.id,boards:[...workspace.boards,b]});setHistory([]);setFuture([]);setSelectedId(undefined);setShowBoards(false);setShowStart(false)}
+  const openTour=()=>{setShowHelp(false);setShowStart(false);setShowExport(false);setShowLayers(false);setShowBackground(false);setStitchDrawMode(false);setDrawerOpen(true);setTourStep(0)}
+  const closeTour=(completed:boolean)=>{setTourStep(undefined);setTourRect(undefined);setWorkspace(current=>current?{...current,tutorialSeen:true}:current);notify(completed?'新手教程完成，可以开始自由创作了。':'已跳过教程，可随时从“帮助”重新打开。')}
+  const activateNewBoard=(b:Board)=>{if(!workspace)return;const needsTour=!workspace.tutorialSeen;setWorkspace({...workspace,onboardingSeen:true,activeBoardId:b.id,boards:[...workspace.boards,b]});setHistory([]);setFuture([]);setSelectedId(undefined);setShowBoards(false);setShowStart(false);if(needsTour)window.setTimeout(()=>setTourStep(0),0)}
   const newBoard=(format:Board['format']='landscape')=>activateNewBoard(blankBoard(format))
   const startGuided=()=>{activateNewBoard(guidedBoard());setTab('fabric');setDrawerOpen(true);notify('先选一块布，再把它裁成花瓣。')}
   const startFree=()=>{activateNewBoard(blankBoard('landscape'));setTab('fabric');setDrawerOpen(true)}
-  const continueCurrent=()=>{if(!workspace)return;setWorkspace({...workspace,onboardingSeen:true});setShowStart(false)}
+  const continueCurrent=()=>{if(!workspace)return;const needsTour=!workspace.tutorialSeen;setWorkspace({...workspace,onboardingSeen:true});setShowStart(false);if(needsTour)window.setTimeout(()=>setTourStep(0),0)}
   const startTrace=()=>{if(workspace)setWorkspace({...workspace,onboardingSeen:true});setShowStart(false);setShowTrace(true);setTraceSource(undefined);setTracePreview('')}
   const applyTrace=()=>{
     if(!traceSource||!tracePreview)return
@@ -797,7 +829,7 @@ function App() {
         <button className="icon-btn tiny" onClick={()=>setShowBoards(v=>!v)} aria-label="打开作品列表"><ChevronDown size={16}/></button>
         {showBoards&&<div className="popover board-popover"><b>我的作品</b>{workspace.boards.map(b=><button key={b.id} onClick={()=>switchBoard(b.id)} className={b.id===board.id?'active':''}><span>{b.title}</span><small>{new Date(b.updatedAt).toLocaleDateString('zh-CN')}</small></button>)}<button className="new-board" onClick={()=>newBoard()}><Plus size={16}/> 新建空白板</button></div>}
       </div>
-      <div className="top-actions">
+      <div className="top-actions" data-tour="top-actions">
         <span className={`save-indicator ${saveState}`}><Save size={14}/>{saveState==='saved'?'已保存':saveState==='saving'?'保存中':'保存失败'}</span>
         <button className="icon-btn" onClick={undo} disabled={!history.length} aria-label="撤销"><Undo2/></button>
         <button className="icon-btn" onClick={redo} disabled={!future.length} aria-label="重做"><Redo2/></button>
@@ -809,7 +841,7 @@ function App() {
     </header>
 
     <main className="workspace">
-      <aside className={`library ${drawerOpen?'open':'closed'}`}>
+      <aside className={`library ${drawerOpen?'open':'closed'}`} data-tour="library">
         <div className="library-head"><div><span>材料台</span><small>{baseFabrics.length} 种基础布 · 先放到纸样上再决定怎么裁</small></div><button className="icon-btn" onClick={()=>setDrawerOpen(false)} aria-label="收起素材库"><PanelLeftClose/></button></div>
         <nav className="asset-tabs" aria-label="素材分类">
           {([['fabric','布料',Layers3],['part','针脚装饰',Shapes],['frame','相框',Frame],['inspiration','纸样灵感',Sparkles]] as const).map(([id,label,Icon])=><button key={id} className={tab===id?'active':''} onClick={()=>setTab(id)}><Icon/><span>{label}</span></button>)}
@@ -832,10 +864,10 @@ function App() {
         <footer className="library-foot"><button onClick={()=>setSeriesInfo('sources')}><Link2/>关于这套私人素材</button></footer>
       </aside>
 
-      <section className="stage-area" title="触控板：双指滑动平移画布，捏合缩放">
+      <section className="stage-area" title="触控板：双指滑动平移画布，捏合缩放" data-tour="canvas">
         {!drawerOpen&&<button className="drawer-reopen" onClick={()=>setDrawerOpen(true)}><PanelLeftOpen/>素材</button>}
-        <div className={`floating-add ${selected?.kind==='drawnStitch'?'stitch-selected':''} ${showBackground?'background-open':''}`}>
-          <button className={stitchDrawMode?'active':''} onClick={()=>{setShowBackground(false);setShowLayers(false);setStitchDrawMode(true);setInlineCutId(undefined);setStitchDrawPoints([]);setContextMenu(undefined)}}><Pencil/>画缝线</button><button onClick={()=>{setShowBackground(false);setShowLayers(false);photoInput.current?.click()}}><ImagePlus/>照片</button><button onClick={()=>{setShowBackground(false);setShowLayers(false);openText()}}><Type/>文字</button><button className={showBackground?'active':''} onClick={()=>{setShowLayers(false);setShowBackground(value=>!value)}}><Palette/>底布</button><button className={showLayers?'active':''} onClick={()=>{setShowBackground(false);setShowLayers(value=>!value)}}><Layers3/>图层</button>
+        <div className={`floating-add ${selected?.kind==='drawnStitch'?'stitch-selected':''} ${showBackground?'background-open':''}`} data-tour="add-tools">
+          <button className={stitchDrawMode?'active':''} onClick={()=>{setShowBackground(false);setShowLayers(false);setStitchDrawMode(true);setInlineCutId(undefined);setStitchDrawPoints([]);setContextMenu(undefined)}}><Pencil/>画缝线</button><button onClick={()=>{setShowBackground(false);setShowLayers(false);photoInput.current?.click()}}><ImagePlus/>照片</button><button onClick={()=>{setShowBackground(false);setShowLayers(false);openText()}}><Type/>文字</button><button className={showBackground?'active':''} onClick={()=>{setShowLayers(false);setShowBackground(value=>!value)}}><Palette/>底布</button><button data-tour="layers" className={showLayers?'active':''} onClick={()=>{setShowBackground(false);setShowLayers(value=>!value)}}><Layers3/>图层</button>
           {showBackground&&<div className="background-palette"><b>画布背景</b><div className="background-colors">{['#f5f0e6','#e7dbca','#d9cbb7','#d7ddd1','#d9dce3','#d8c8c8','#383633'].map(color=><button key={color} style={{background:color}} className={board.background===color?'active':''} onClick={()=>commit(b=>({...b,background:color}))} aria-label={`底布颜色 ${color}`}/>)}</div><button className="upload-background" onClick={()=>backgroundInput.current?.click()}><ImagePlus/>上传背景图片</button>{board.backgroundImage&&<div className="background-image-settings"><span title={board.backgroundImageName}>{board.backgroundImageName||'已上传背景'}</span><div className="background-fit-buttons">{([['cover','铺满'],['contain','完整'],['stretch','拉伸']] as const).map(([fit,label])=><button key={fit} className={(board.backgroundFit||'cover')===fit?'active':''} onClick={()=>commit(b=>({...b,backgroundFit:fit}))}>{label}</button>)}</div><label>背景深浅<input aria-label="背景图片透明度" type="range" min=".15" max="1" step=".05" value={board.backgroundOpacity??1} onChange={event=>mutateLive(b=>({...b,backgroundOpacity:Number(event.target.value)}))}/></label><button className="remove-background" onClick={()=>commit(b=>{const next={...b};delete next.backgroundImage;delete next.backgroundImageName;delete next.backgroundFit;delete next.backgroundOpacity;return next})}><Trash2/>移除图片背景</button></div>}<small>背景固定在最底层，会随作品保存和导出。</small></div>}
         </div>
         {showLayers&&<aside className="layers-panel" aria-label="全部图层"><header><span><Layers3/><b>全部图层</b><small>{board.items.length+(board.guide?1:0)+1}</small></span><button onClick={()=>setShowLayers(false)} aria-label="关闭图层面板"><X/></button></header><div className="layer-list">{board.guide&&<button className={`layer-row guide-row ${guideSelected?'active':''}`} onClick={()=>{setStitchDrawMode(false);setDrawingStitch(false);setStitchDrawPoints([]);setGuideSelected(true);setSelectedId(undefined);if(!board.guide?.visible)toggleGuide()}}><i><Eye/></i><span><b>{board.guide.name||'纸样'}</b><small>纸样 · 始终置顶</small></span></button>}{[...board.items].map((item,index)=>({item,index})).reverse().map(({item,index})=><button key={item.id} className={`layer-row ${selectedId===item.id?'active':''}`} onClick={()=>focusLayer(item)}><i>{board.items.length-index}</i><span><b>{layerName(item,index)}</b><small>{item.kind==='drawnStitch'?STITCH_LABELS[item.stitchStyle||'running']:item.kind==='text'?'文字':item.kind==='frame'?'相框':item.kind==='photo'?'照片':item.kind==='group'?'组合':'素材'}</small></span></button>)}<button className="layer-row background-row" onClick={()=>{setSelectedId(undefined);setGuideSelected(false);setShowLayers(false);setShowBackground(true)}}><i><Palette/></i><span><b>{board.backgroundImageName||'画布背景'}</b><small>{board.backgroundImage?'图片背景 · 固定最底层':'纯色背景 · 固定最底层'}</small></span></button></div></aside>}
@@ -854,9 +886,9 @@ function App() {
           <g transform={`translate(${view.panX} ${view.panY}) scale(${view.zoom})`}><BoardScene board={board} assets={assetMap} dataUrls={assetData} selectedId={selectedId} interactive handleScale={1/Math.max(.05,view.zoom*stagePixelScale)} onItemDown={onItemDown} onItemContext={onItemContext}/></g>
         </svg>
         {contextMenu&&(()=>{const item=board.items.find(part=>part.id===contextMenu.id);const asset=item?.assetId?assetMap.get(item.assetId):undefined;const fabric=item?.kind==='asset'&&asset?.category==='fabric';if(!item)return null;return <div className="canvas-context" style={{left:contextMenu.x,top:contextMenu.y}} onMouseDown={event=>event.stopPropagation()}>{fabric&&<button onClick={()=>{autoStitch(item);setContextMenu(undefined)}}><Sparkles/>沿边自动生成缝线</button>}{fabric&&<button onClick={()=>{openCutter(asset!,item.id);setContextMenu(undefined)}}><Scissors/>裁剪这块布…</button>}{fabric&&<button onClick={()=>startInlineCut(item.id)}><Pencil/>沿画布纸样自由裁</button>}{item.cutPath&&<button onClick={()=>restoreWholeFabric(item.id)}><SquareDashed/>恢复整块布</button>}<button onClick={duplicateSelected}><Copy/>复制</button><button className="danger" onClick={deleteSelected}><Trash2/>删除</button></div>})()}
-        <div className="view-controls"><button className={panMode?'active':''} onClick={()=>setPanMode(v=>!v)} title="平移画布"><MousePointer2/></button><button onClick={()=>setView(v=>({...v,zoom:Math.max(.25,v.zoom-.1)}))} aria-label="缩小"><ZoomOut/></button><span>{Math.round(view.zoom*100)}%</span><button onClick={()=>setView(v=>({...v,zoom:Math.min(2.5,v.zoom+.1)}))} aria-label="放大"><ZoomIn/></button><button onClick={()=>fitView()} aria-label="回到全景"><Grip/></button></div>
+        <div className="view-controls" data-tour="view"><button className={panMode?'active':''} onClick={()=>setPanMode(v=>!v)} title="平移画布"><MousePointer2/></button><button onClick={()=>setView(v=>({...v,zoom:Math.max(.25,v.zoom-.1)}))} aria-label="缩小"><ZoomOut/></button><span>{Math.round(view.zoom*100)}%</span><button onClick={()=>setView(v=>({...v,zoom:Math.min(2.5,v.zoom+.1)}))} aria-label="放大"><ZoomIn/></button><button onClick={()=>fitView()} aria-label="回到全景"><Grip/></button></div>
         <div className="format-switch"><button className={board.format==='landscape'?'active':''} onClick={()=>changeFormat('landscape')}>横版</button><button className={board.format==='square'?'active':''} onClick={()=>changeFormat('square')}>方版</button><button className={board.format==='portrait'?'active':''} onClick={()=>changeFormat('portrait')}>竖版</button></div>
-        {selected&&!stitchDrawMode&&<div className="selection-toolbar">
+        {selected&&!stitchDrawMode&&<div className="selection-toolbar" data-tour="selection">
           <span className="selection-name">{selected.kind==='text'?'文字':selected.kind==='drawnStitch'?`手绘${STITCH_LABELS[selected.stitchStyle||'running']}`:assetMap.get(selected.assetId||'')?.name||'照片'}</span>
           <button onClick={()=>scaleSelected(.9)} aria-label="缩小对象"><ZoomOut/>缩小</button><button onClick={()=>scaleSelected(1.1)} aria-label="放大对象"><ZoomIn/>放大</button><button onClick={()=>rotateSelected(-15)} aria-label="向左旋转"><RotateCcw/>左转</button><button onClick={()=>rotateSelected(15)} aria-label="向右旋转"><RotateCw/>右转</button>
           {selected.kind==='frame'&&<><button onClick={()=>photoInput.current?.click()}><ImagePlus/>换照片</button><button className={cropMode?'active':''} onClick={()=>setCropMode(v=>!v)}><MousePointer2/>调整照片</button></>}
@@ -891,8 +923,9 @@ function App() {
     {showFabricUpload&&fabricDraft&&<div className="modal-backdrop" onMouseDown={()=>setShowFabricUpload(false)}><div className="modal fabric-modal" onMouseDown={event=>event.stopPropagation()}><div className="modal-head"><div><small>系统先给建议，你来做最后确认</small><h2>收进我的布料</h2></div><button onClick={()=>setShowFabricUpload(false)}><X/></button></div><div className="fabric-review"><img src={fabricDraft.data} alt="上传的布料"/><div><label>布料名称<input value={fabricDraft.name} onChange={event=>setFabricDraft({...fabricDraft,name:event.target.value})}/></label><label>主要颜色<select value={fabricDraft.color} onChange={event=>setFabricDraft({...fabricDraft,color:event.target.value})}>{colorOptions.map(value=><option key={value}>{value}</option>)}</select></label><label>纹样<select value={fabricDraft.pattern} onChange={event=>setFabricDraft({...fabricDraft,pattern:event.target.value})}>{['纯色','碎花','格纹','条纹','波点','几何','印染','纹理','多色图案'].map(value=><option key={value}>{value}</option>)}</select></label><label>材质<select value={fabricDraft.material} onChange={event=>setFabricDraft({...fabricDraft,material:event.target.value})}>{['未确认','棉布','亚麻','牛仔','毛毡','丝缎','纱类','帆布'].map(value=><option key={value}>{value}</option>)}</select></label><p>图片无法稳定判断真实材质，所以材质默认留为“未确认”。颜色与纹样建议置信度：{fabricDraft.confidence}。</p></div></div><div className="modal-actions"><button onClick={()=>setShowFabricUpload(false)}>取消</button><button className="primary-btn" onClick={saveUserFabric}>确认并收进布料柜</button></div></div></div>}
 
     {showText&&<div className="modal-backdrop" onMouseDown={()=>setShowText(false)}><div className="modal text-modal" onMouseDown={e=>e.stopPropagation()}><div className="modal-head"><div><small>添加文字</small><h2>给这一页留句话</h2></div><button onClick={()=>setShowText(false)}>×</button></div><textarea autoFocus value={textDraft} onChange={e=>setTextDraft(e.target.value)} rows={4} style={{fontFamily:TEXT_FONTS[textFont].stack}}/><div className="text-options"><label>字体 <select value={textFont} onChange={e=>setTextFont(e.target.value as TextFont)}>{(Object.entries(TEXT_FONTS) as [TextFont,{label:string;stack:string}][]).map(([value,font])=><option key={value} value={value}>{font.label}</option>)}</select></label><label>字号 <input type="range" min="14" max="72" value={textSize} onChange={e=>setTextSize(Number(e.target.value))}/><span>{textSize}</span></label><label>颜色 <input type="color" value={textColor} onChange={e=>setTextColor(e.target.value)}/></label></div><div className="modal-actions"><button onClick={()=>setShowText(false)}>取消</button><button className="primary-btn" onClick={addText}>放到画布</button></div></div></div>}
-    {showHelp&&<div className="modal-backdrop" onMouseDown={()=>setShowHelp(false)}><div className="modal help-modal" onMouseDown={e=>e.stopPropagation()}><div className="modal-head"><div><small>一条看得懂的创作路径</small><h2>纸样 → 放布 → 裁布 → 拼贴</h2></div><button onClick={()=>setShowHelp(false)}>×</button></div><div className="help-steps"><div><b>01</b><span><strong>从纸样、图片或空白板开始</strong><small>图片可转轮廓、色块或半透明描图底稿，纸样随时可隐藏。</small></span></div><div><b>02</b><span><strong>先把整块布放上画布</strong><small>点击或拖入即可，放下后立即能选中、移动、缩放和旋转。</small></span></div><div><b>03</b><span><strong>选中或右键后再决定怎么裁</strong><small>可拖动布纹选范围、自由画轮廓，也可直接贴着画布上的纸样描边。手机用底部的“裁剪”按钮。</small></span></div><div><b>04</b><span><strong>手绘针脚，或给布片自动缝边</strong><small>选中布片点“自动缝边”，系统会沿真实裁剪轮廓生成独立缝线；颜色、粗细、针距、透明度、离边距离和针法都能继续调整。</small></span></div></div><div className="shortcut-list"><span>右键布料 裁剪 / 自动缝边</span><span>⌘/Ctrl Z 撤销</span><span>Delete 删除</span><span>方向键微移</span></div><div className="modal-actions"><button onClick={()=>projectInput.current?.click()}><Upload/>导入组员项目</button><button className="primary-btn" onClick={()=>{setShowHelp(false);setShowStart(true)}}>回到创作起点</button></div></div></div>}
+    {showHelp&&<div className="modal-backdrop" onMouseDown={()=>setShowHelp(false)}><div className="modal help-modal" onMouseDown={e=>e.stopPropagation()}><div className="modal-head"><div><small>一条看得懂的创作路径</small><h2>纸样 → 放布 → 裁布 → 拼贴</h2></div><button onClick={()=>setShowHelp(false)}>×</button></div><div className="help-steps"><div><b>01</b><span><strong>从纸样、图片或空白板开始</strong><small>图片可转轮廓、色块或半透明描图底稿，纸样随时可隐藏。</small></span></div><div><b>02</b><span><strong>先把整块布放上画布</strong><small>点击或拖入即可，放下后立即能选中、移动、缩放和旋转。</small></span></div><div><b>03</b><span><strong>选中或右键后再决定怎么裁</strong><small>可拖动布纹选范围、自由画轮廓，也可直接贴着画布上的纸样描边。手机用底部的“裁剪”按钮。</small></span></div><div><b>04</b><span><strong>手绘针脚，或给布片自动缝边</strong><small>选中布片点“自动缝边”，系统会沿真实裁剪轮廓生成独立缝线；颜色、粗细、针距、透明度、离边距离和针法都能继续调整。</small></span></div></div><div className="shortcut-list"><span>右键布料 裁剪 / 自动缝边</span><span>⌘/Ctrl Z 撤销</span><span>Delete 删除</span><span>方向键微移</span></div><div className="modal-actions"><button onClick={()=>projectInput.current?.click()}><Upload/>导入组员项目</button><button onClick={openTour}><Sparkles/>重新看新手教程</button><button className="primary-btn" onClick={()=>{setShowHelp(false);setShowStart(true)}}>回到创作起点</button></div></div></div>}
     {seriesInfo&&<div className="modal-backdrop" onMouseDown={()=>setSeriesInfo(undefined)}><div className="modal source-modal" onMouseDown={e=>e.stopPropagation()}><div className="modal-head"><div><small>私人本地学习素材包</small><h2>{seriesInfo==='sources'?'关于这套素材':seriesInfo}</h2></div><button onClick={()=>setSeriesInfo(undefined)}>×</button></div>{seriesInfo==='sources'&&<><div className="source-stats"><b>{baseFabrics.length}</b><span>基础布料</span><b>9</b><span>内置裁法</span><b>{assets.filter(a=>a.category==='fabric').length}</b><span>兼容旧裁片</span></div><p>素材库以“基础布料”为主体。用户先把整布放到画布，然后再选形状、拖动纹样范围或沿纸样自由裁剪，不会再把同一块布的九种形状当作九种材料。旧作品依然能正常打开。</p><p>内置素材根据用户提供的参考提炼色彩、织纹、旧化与手作语言；用户上传的布料只存在当前浏览器，系统标签只是建议，以用户确认为准。</p><div className="source-links"><a href="/assets/fabric-overview.webp" target="_blank">打开完整布料总览 ↗</a></div></>}</div></div>}
+    {tourStep!==undefined&&(()=>{const step=TOUR_STEPS[tourStep];const cardWidth=Math.min(360,window.innerWidth-24);let cardStyle:React.CSSProperties={left:'50%',top:'50%',transform:'translate(-50%,-50%)'};if(tourRect){let left=Math.max(12,Math.min(window.innerWidth-cardWidth-12,tourRect.left+tourRect.width/2-cardWidth/2)),top=Math.max(12,tourRect.top-252);if(tourRect.right+cardWidth+18<window.innerWidth){left=tourRect.right+16;top=Math.max(12,Math.min(window.innerHeight-270,tourRect.top+36))}else if(tourRect.bottom+250<window.innerHeight){top=tourRect.bottom+16}else if(tourRect.top<270){top=Math.max(12,window.innerHeight-260)}cardStyle={left,top,width:cardWidth}}return <div className={`tour-overlay ${tourRect?'has-target':'welcome'}`} role="dialog" aria-modal="true" aria-label={`新手教程：${step.title}`}>{tourRect&&<div className="tour-spotlight" style={{left:tourRect.left-6,top:tourRect.top-6,width:tourRect.width+12,height:tourRect.height+12}}/>}<section className="tour-card" style={cardStyle}><div className="tour-progress"><span>{tourStep+1} / {TOUR_STEPS.length}</span><div>{TOUR_STEPS.map((item,index)=><i key={item.id} className={index===tourStep?'active':index<tourStep?'done':''}/>)}</div></div><small>新手教程</small><h2>{step.title}</h2><p>{step.body}</p><div className="tour-actions"><button className="tour-skip" onClick={()=>closeTour(false)}>跳过教程</button><span/>{tourStep>0&&<button onClick={()=>setTourStep(tourStep-1)}>上一步</button>}<button className="tour-next" onClick={()=>tourStep===TOUR_STEPS.length-1?closeTour(true):setTourStep(tourStep+1)}>{tourStep===TOUR_STEPS.length-1?'开始创作':'下一步'}</button></div></section></div>})()}
     {toast&&<div className="toast" role="status">{toast}</div>}
   </div>
 }

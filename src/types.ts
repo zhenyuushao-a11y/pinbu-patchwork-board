@@ -125,4 +125,5 @@ export interface SavedState {
   boards: Board[]
   userFabrics?: Asset[]
   onboardingSeen?: boolean
+  tutorialSeen?: boolean
 }
