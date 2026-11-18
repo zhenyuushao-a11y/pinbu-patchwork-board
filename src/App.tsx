@@ -21,8 +21,9 @@ const now = () => new Date().toISOString()
 const STITCH_LABELS:Record<StitchStyle,string>={running:'平针',cross:'十字针',blanket:'锁边针',chain:'链式针'}
 const TOUR_STEPS=[
   {id:'welcome',title:'30 秒认识拼布工作台',body:'跟着高亮区域走一遍，就能开始创作。不需要现在记住全部功能，之后也能从“帮助”重新打开。'},
-  {id:'library',selector:'[data-tour="library"]',title:'第一步：从材料台选布',body:'可以按颜色、材质和纹样筛选。点一下直接加入，或把布拖到画布；“上传我的布料”可以收进自己的布。'},
-  {id:'canvas',selector:'[data-tour="canvas"]',title:'第二步：在画布上自由拼',body:'拖动物件来摆放；触控板双指滑动平移，捏合缩放；点空白处可取消选中。'},
+  {id:'patterns',selector:'[data-tour="patterns"]',fallbackSelector:'[data-tour="library"]',title:'第一步：先选一张纸样',body:'打开“纸样灵感”可挑选现成轮廓；也可以从顶部“创作起点”上传自己的图片生成纸样。纸样会置顶显示，方便对着裁布和拼贴。'},
+  {id:'library',selector:'[data-tour="library"]',title:'第二步：从材料台选布',body:'可以按颜色、材质和纹样筛选。点一下直接加入，或把布拖到画布；“上传我的布料”可以收进自己的布。'},
+  {id:'canvas',selector:'[data-tour="canvas"]',title:'第三步：在画布上自由拼',body:'拖动物件来摆放；触控板双指滑动平移，捏合缩放；点空白处可取消选中。'},
   {id:'add',selector:'[data-tour="add-tools"]',title:'照片、文字、底布和针脚都在这里',body:'这里可以画缝线、上传照片、添加手写文字、更换背景，也能打开全部图层。'},
   {id:'edit',selector:'[data-tour="selection"]',fallbackSelector:'[data-tour="canvas"]',title:'选中物件后再精细编辑',body:'选中布片或照片后，工具栏会出现缩放、旋转、裁剪、自动缝边、复制、翻转、层级和删除。画布上的圆点也能直接缩放与旋转。'},
   {id:'layers',selector:'[data-tour="layers"]',title:'找不到物件时，打开图层',body:'图层列表按前后顺序显示全部素材、文字、照片、缝线和纸样。点一行就能立即定位并选中。'},
@@ -419,7 +420,9 @@ function App() {
   useEffect(()=>{
     if(tourStep===undefined)return
     const step=TOUR_STEPS[tourStep]
-    if(step.id==='library'&&!drawerOpen)setDrawerOpen(true)
+  if((step.id==='patterns'||step.id==='library')&&!drawerOpen)setDrawerOpen(true)
+  if(step.id==='patterns')setTab('inspiration')
+  if(step.id==='library')setTab('fabric')
     if(step.id==='edit'&&!selectedId&&board?.items.length)setSelectedId(board.items[0].id)
     const update=()=>{
       const primary='selector' in step?document.querySelector<HTMLElement>(step.selector):null
@@ -844,7 +847,7 @@ function App() {
       <aside className={`library ${drawerOpen?'open':'closed'}`} data-tour="library">
         <div className="library-head"><div><span>材料台</span><small>{baseFabrics.length} 种基础布 · 先放到纸样上再决定怎么裁</small></div><button className="icon-btn" onClick={()=>setDrawerOpen(false)} aria-label="收起素材库"><PanelLeftClose/></button></div>
         <nav className="asset-tabs" aria-label="素材分类">
-          {([['fabric','布料',Layers3],['part','针脚装饰',Shapes],['frame','相框',Frame],['inspiration','纸样灵感',Sparkles]] as const).map(([id,label,Icon])=><button key={id} className={tab===id?'active':''} onClick={()=>setTab(id)}><Icon/><span>{label}</span></button>)}
+          {([['fabric','布料',Layers3],['part','针脚装饰',Shapes],['frame','相框',Frame],['inspiration','纸样灵感',Sparkles]] as const).map(([id,label,Icon])=><button key={id} data-tour={id==='inspiration'?'patterns':undefined} className={tab===id?'active':''} onClick={()=>setTab(id)}><Icon/><span>{label}</span></button>)}
         </nav>
         {tab==='fabric'&&<div className="filters">
           <div className="fabric-actions"><button className="upload-fabric" onClick={()=>fabricInput.current?.click()}><Upload/>上传我的布料</button><span>图片只留在浏览器</span></div>
