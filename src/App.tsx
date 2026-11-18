@@ -167,6 +167,34 @@ function OverlayAsset({source,item}:{source:string,item:BoardItem|ChildItem}) {
 
 const pointsPath=(points:PathPoint[])=>points.length?`M${points.map(point=>`${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join('L')}`:''
 
+function itemBounds(item:BoardItem) {
+  const cx=item.x+item.width/2,cy=item.y+item.height/2,angle=item.rotation*Math.PI/180,cos=Math.cos(angle),sin=Math.sin(angle)
+  const corners=[[item.x,item.y],[item.x+item.width,item.y],[item.x+item.width,item.y+item.height],[item.x,item.y+item.height]]
+  const points=corners.map(([x,y])=>({x:cx+(x-cx)*cos-(y-cy)*sin,y:cy+(x-cx)*sin+(y-cy)*cos}))
+  return {minX:Math.min(...points.map(point=>point.x)),minY:Math.min(...points.map(point=>point.y)),maxX:Math.max(...points.map(point=>point.x)),maxY:Math.max(...points.map(point=>point.y))}
+}
+
+function completeExportBounds(board:Board) {
+  const bounds=board.items.map(itemBounds),padding=18
+  const minX=Math.min(0,...bounds.map(value=>value.minX))-padding
+  const minY=Math.min(0,...bounds.map(value=>value.minY))-padding
+  const maxX=Math.max(board.width,...bounds.map(value=>value.maxX))+padding
+  const maxY=Math.max(board.height,...bounds.map(value=>value.maxY))+padding
+  return {x:minX,y:minY,width:maxX-minX,height:maxY-minY}
+}
+
+async function inlineExportImages(svg:SVGSVGElement) {
+  await Promise.all(Array.from(svg.querySelectorAll('image')).map(async image=>{
+    const href=image.getAttribute('href')
+    if(!href||href.startsWith('data:')||href.startsWith('blob:'))return
+    const response=await fetch(href)
+    if(!response.ok)throw new Error('素材读取失败')
+    const blob=await response.blob()
+    const data=await new Promise<string>((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result));reader.onerror=()=>reject(reader.error);reader.readAsDataURL(blob)})
+    image.setAttribute('href',data)
+  }))
+}
+
 function samplePath(points:PathPoint[],gap:number) {
   const samples:Array<PathPoint&{angle:number}>=[]
   if(points.length<2)return samples
@@ -441,9 +469,9 @@ function App() {
   },[board])
   useEffect(()=>{ if(board) fitView(board) },[board?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const toWorld = useCallback((clientX:number,clientY:number)=>{
+  const clientToStage = useCallback((clientX:number,clientY:number)=>{
     const svg=svgRef.current
-    if(!svg)return {x:0,y:0,sx:0,sy:0}
+    if(!svg)return {sx:0,sy:0}
     const matrix=svg.getScreenCTM()
     let sx=0,sy=0
     if(matrix){
@@ -452,8 +480,39 @@ function App() {
     }else{
       const rect=svg.getBoundingClientRect();sx=(clientX-rect.left)*STAGE_W/rect.width;sy=(clientY-rect.top)*STAGE_H/rect.height
     }
+    return {sx,sy}
+  },[])
+
+  const toWorld = useCallback((clientX:number,clientY:number)=>{
+    const {sx,sy}=clientToStage(clientX,clientY)
     return {x:(sx-view.panX)/view.zoom,y:(sy-view.panY)/view.zoom,sx,sy}
-  },[view])
+  },[clientToStage,view])
+
+  useEffect(()=>{
+    const svg=svgRef.current
+    if(!svg)return
+    const handleWheel=(event:WheelEvent)=>{
+      event.preventDefault()
+      const {sx,sy}=clientToStage(event.clientX,event.clientY)
+      const unit=event.deltaMode===WheelEvent.DOM_DELTA_LINE?16:event.deltaMode===WheelEvent.DOM_DELTA_PAGE?STAGE_H:1
+      if(event.ctrlKey||event.metaKey){
+        const factor=Math.exp(-event.deltaY*unit*.008)
+        setView(current=>{
+          const zoom=Math.max(.25,Math.min(2.5,current.zoom*factor))
+          const worldX=(sx-current.panX)/current.zoom,worldY=(sy-current.panY)/current.zoom
+          return {zoom,panX:sx-worldX*zoom,panY:sy-worldY*zoom}
+        })
+        return
+      }
+      let deltaX=event.deltaX*unit,deltaY=event.deltaY*unit
+      if(event.shiftKey&&Math.abs(deltaX)<Math.abs(deltaY)){deltaX=deltaY;deltaY=0}
+      const matrix=svg.getScreenCTM()
+      const screenScale=matrix?Math.max(.01,Math.hypot(matrix.a,matrix.b)):1
+      setView(current=>({...current,panX:current.panX-deltaX/screenScale,panY:current.panY-deltaY/screenScale}))
+    }
+    svg.addEventListener('wheel',handleWheel,{passive:false})
+    return()=>svg.removeEventListener('wheel',handleWheel)
+  },[clientToStage,board?.id])
 
   const onItemDown = useCallback((e:React.PointerEvent,id:string,mode:HandleMode)=>{
     if(inlineCutId||stitchDrawMode)return
@@ -621,13 +680,17 @@ function App() {
 
   const cropAdjust=(dx:number,dy:number,scale=0)=>{if(!selected||(selected.kind!=='frame'&&selected.kind!=='photo'))return;commit(b=>({...b,items:b.items.map(i=>i.id===selected.id?{...i,cropX:(i.cropX||0)+dx,cropY:(i.cropY||0)+dy,cropScale:Math.max(.6,Math.min(3,(i.cropScale||1)+scale))}:i)}))}
 
-  const exportPng = async()=>{
+  const exportPng = async(includeOverflow=true)=>{
     if(!board)return;setShowExport(false);notify('正在生成高清 PNG…')
     try{
-      const svg=document.getElementById('export-svg') as unknown as SVGSVGElement; const copy=svg.cloneNode(true) as SVGSVGElement; copy.setAttribute('xmlns','http://www.w3.org/2000/svg'); copy.setAttribute('width',String(board.width));copy.setAttribute('height',String(board.height));
+      const svg=document.getElementById('export-svg') as unknown as SVGSVGElement; const copy=svg.cloneNode(true) as SVGSVGElement
+      const bounds=includeOverflow?completeExportBounds(board):{x:0,y:0,width:board.width,height:board.height}
+      copy.setAttribute('xmlns','http://www.w3.org/2000/svg');copy.setAttribute('viewBox',`${bounds.x} ${bounds.y} ${bounds.width} ${bounds.height}`);copy.setAttribute('width',String(bounds.width));copy.setAttribute('height',String(bounds.height))
+      if(includeOverflow){const backdrop=document.createElementNS('http://www.w3.org/2000/svg','rect');backdrop.setAttribute('x',String(bounds.x));backdrop.setAttribute('y',String(bounds.y));backdrop.setAttribute('width',String(bounds.width));backdrop.setAttribute('height',String(bounds.height));backdrop.setAttribute('fill',board.background);copy.insertBefore(backdrop,copy.firstChild)}
+      await inlineExportImages(copy)
       const xml=new XMLSerializer().serializeToString(copy);const url=URL.createObjectURL(new Blob([xml],{type:'image/svg+xml'}));const img=new Image()
       await new Promise<void>((resolve,reject)=>{img.onload=()=>resolve();img.onerror=()=>reject(new Error('渲染失败'));img.src=url})
-      const canvas=document.createElement('canvas');canvas.width=board.width*2;canvas.height=board.height*2;const ctx=canvas.getContext('2d')!;ctx.scale(2,2);ctx.drawImage(img,0,0);URL.revokeObjectURL(url)
+      const canvas=document.createElement('canvas');canvas.width=Math.ceil(bounds.width*2);canvas.height=Math.ceil(bounds.height*2);const ctx=canvas.getContext('2d')!;ctx.scale(2,2);ctx.drawImage(img,0,0,bounds.width,bounds.height);URL.revokeObjectURL(url)
       const blob=await new Promise<Blob|null>(resolve=>canvas.toBlob(resolve,'image/png'));if(!blob)throw new Error('PNG 生成失败');fileDownload(blob,`${safeName(board.title)}.png`);notify('PNG 已下载。')
     }catch{notify('导出失败，作品仍已保留。请下载项目备份。')}
   }
@@ -740,7 +803,7 @@ function App() {
         <button className="icon-btn" onClick={redo} disabled={!future.length} aria-label="重做"><Redo2/></button>
         <button className="secondary-btn desktop-only" onClick={()=>setShowStart(true)}><Sparkles size={18}/>创作起点</button>
         <button className="primary-btn" onClick={()=>setShowExport(v=>!v)}><Download size={18}/>导出</button>
-        {showExport&&<div className="popover export-popover"><button onClick={()=>void exportPng()}><FileImage/><span><b>高清 PNG</b><small>2× 清晰度，不含纸样和选中框</small></span></button><button onClick={exportProject}><Share2/><span><b>发给组员继续编辑</b><small>包含布局、照片和已使用的自定义布料</small></span></button></div>}
+        {showExport&&<div className="popover export-popover"><button onClick={()=>void exportPng(true)}><FileImage/><span><b>完整画面 PNG</b><small>包含旋转或超出边缘的物件，不再截断</small></span></button><button onClick={()=>void exportPng(false)}><SquareDashed/><span><b>按底板裁边 PNG</b><small>严格保持当前底板比例</small></span></button><button onClick={exportProject}><Share2/><span><b>发给组员继续编辑</b><small>包含布局、照片和已使用的自定义布料</small></span></button></div>}
         <button className="icon-btn" onClick={()=>setShowHelp(true)} aria-label="使用帮助"><CircleHelp/></button>
       </div>
     </header>
@@ -769,7 +832,7 @@ function App() {
         <footer className="library-foot"><button onClick={()=>setSeriesInfo('sources')}><Link2/>关于这套私人素材</button></footer>
       </aside>
 
-      <section className="stage-area">
+      <section className="stage-area" title="触控板：双指滑动平移画布，捏合缩放">
         {!drawerOpen&&<button className="drawer-reopen" onClick={()=>setDrawerOpen(true)}><PanelLeftOpen/>素材</button>}
         <div className={`floating-add ${selected?.kind==='drawnStitch'?'stitch-selected':''} ${showBackground?'background-open':''}`}>
           <button className={stitchDrawMode?'active':''} onClick={()=>{setShowBackground(false);setShowLayers(false);setStitchDrawMode(true);setInlineCutId(undefined);setStitchDrawPoints([]);setContextMenu(undefined)}}><Pencil/>画缝线</button><button onClick={()=>{setShowBackground(false);setShowLayers(false);photoInput.current?.click()}}><ImagePlus/>照片</button><button onClick={()=>{setShowBackground(false);setShowLayers(false);openText()}}><Type/>文字</button><button className={showBackground?'active':''} onClick={()=>{setShowLayers(false);setShowBackground(value=>!value)}}><Palette/>底布</button><button className={showLayers?'active':''} onClick={()=>{setShowBackground(false);setShowLayers(value=>!value)}}><Layers3/>图层</button>
