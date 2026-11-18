@@ -34,6 +34,7 @@ export type CutShape = 'square' | 'triangle' | 'circle' | 'strip' | 'petal' | 'l
 export type CreationMode = 'guided' | 'trace' | 'free'
 export type TraceMode = 'outline' | 'blocks' | 'manual'
 export type StitchStyle = 'running' | 'cross' | 'blanket' | 'chain'
+export type TextFont = 'hand' | 'serif' | 'sans'
 
 export interface PathPoint {
   x: number
@@ -74,6 +75,7 @@ export interface BoardItem {
   flipY?: boolean
   text?: string
   fontSize?: number
+  fontFamily?: TextFont
   color?: string
   photoData?: string
   photoName?: string

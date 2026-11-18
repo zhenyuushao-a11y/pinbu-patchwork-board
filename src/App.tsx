@@ -6,7 +6,7 @@ import {
   Pencil, Plus, Redo2, RotateCcw, RotateCw, Save, Scissors, SendToBack, Shapes, Sparkles,
   Search, Share2, SlidersHorizontal, SquareDashed, Trash2, Type, Undo2, Upload, WandSparkles, X, ZoomIn, ZoomOut,
 } from 'lucide-react'
-import type { Asset, AssetCategory, Board, BoardItem, ChildItem, CutShape, PathPoint, SavedState, StitchStyle, TraceMode } from './types'
+import type { Asset, AssetCategory, Board, BoardItem, ChildItem, CutShape, PathPoint, SavedState, StitchStyle, TextFont, TraceMode } from './types'
 import { loadWorkspace, saveWorkspace, validateImportedProject } from './storage'
 import { analyzeFabric, CUT_PATHS, makeTrace } from './trace'
 
@@ -19,6 +19,11 @@ const uid = () => typeof globalThis.crypto?.randomUUID === 'function'
 const clone = <T,>(value: T): T => structuredClone(value)
 const now = () => new Date().toISOString()
 const STITCH_LABELS:Record<StitchStyle,string>={running:'平针',cross:'十字针',blanket:'锁边针',chain:'链式针'}
+const TEXT_FONTS:Record<TextFont,{label:string;stack:string}>={
+  hand:{label:'手写体',stack:'"Kaiti SC", "STKaiti", "KaiTi", "DFKai-SB", cursive'},
+  serif:{label:'宋体',stack:'"Songti SC", "STSong", "Noto Serif CJK SC", serif'},
+  sans:{label:'黑体',stack:'-apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif'},
+}
 
 const placeholderPhoto = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(`
 <svg xmlns="http://www.w3.org/2000/svg" width="960" height="700" viewBox="0 0 960 700">
@@ -222,7 +227,7 @@ function LiveItemOverlay({item,assets,view,selected}:{item:BoardItem,assets:Map<
   const asset=item.assetId?assets.get(item.assetId):undefined
   const style={left:`${(view.panX+item.x*view.zoom)/STAGE_W*100}%`,top:`${(view.panY+item.y*view.zoom)/STAGE_H*100}%`,width:`${item.width*view.zoom/STAGE_W*100}%`,height:`${item.height*view.zoom/STAGE_H*100}%`,opacity:item.opacity,transform:`rotate(${item.rotation}deg) scale(${item.flipX?-1:1},${item.flipY?-1:1})`}
   return <div className={`live-item-overlay ${selected?'selected':''}`} style={style} aria-hidden="true">
-    {item.kind==='text'&&<span className="live-text" style={{color:item.color||'#302b26',fontSize:`${(item.fontSize||28)*view.zoom}px`}}>{item.text}</span>}
+    {item.kind==='text'&&<span className="live-text" style={{color:item.color||'#302b26',fontSize:`${(item.fontSize||28)*view.zoom}px`,fontFamily:TEXT_FONTS[item.fontFamily||'hand'].stack}}>{item.text}</span>}
     {(item.kind==='asset'||item.kind==='stitch')&&asset&&<OverlayAsset source={asset.canvas} item={item}/>}
     {item.kind==='drawnStitch'&&item.points&&<svg className="live-drawn-stitch" viewBox={`0 0 ${item.width} ${item.height}`} preserveAspectRatio="none"><StitchArtwork points={item.points} style={item.stitchStyle} color={item.strokeColor} width={item.strokeWidth} spacing={item.stitchSpacing}/></svg>}
     {item.kind==='photo'&&item.photoData&&<span className="live-photo"><img src={item.photoData} alt="" style={{transform:`translate(${item.cropX||0}px,${item.cropY||0}px) scale(${item.cropScale||1})`}}/></span>}
@@ -248,7 +253,7 @@ function BoardScene({board,assets,dataUrls,selectedId,interactive,handleScale=1,
       const asset = item.assetId ? assets.get(item.assetId) : undefined
       return <g key={item.id} transform={objectTransform(item)} opacity={item.opacity} onPointerDown={interactive?(e)=>onItemDown?.(e,item.id,'move'):undefined} onContextMenu={interactive?(e)=>onItemContext?.(e,item.id):undefined} className={interactive?'canvas-object':''}>
         {interactive&&<rect width={item.width} height={item.height} fill="transparent" pointerEvents="all"/>}
-        {!interactive&&item.kind==='text' && <text x="0" y={item.fontSize || 28} fill={item.color || '#302b26'} fontSize={item.fontSize || 28} fontFamily="ui-serif, STKaiti, KaiTi, serif" style={{whiteSpace:'pre'}}>{(item.text||'').split('\n').map((line,n)=><tspan key={n} x="0" dy={n===0?0:(item.fontSize||28)*1.28}>{line}</tspan>)}</text>}
+        {!interactive&&item.kind==='text' && <text x="0" y={item.fontSize || 28} fill={item.color || '#302b26'} fontSize={item.fontSize || 28} fontFamily={TEXT_FONTS[item.fontFamily||'hand'].stack} style={{whiteSpace:'pre'}}>{(item.text||'').split('\n').map((line,n)=><tspan key={n} x="0" dy={n===0?0:(item.fontSize||28)*1.28}>{line}</tspan>)}</text>}
         {!interactive&&(item.kind==='asset'||item.kind==='stitch') && <AssetImage asset={asset} item={item} dataUrls={dataUrls} sceneId={sceneId}/>}
         {!interactive&&item.kind==='drawnStitch'&&item.points&&<StitchArtwork points={item.points} style={item.stitchStyle} color={item.strokeColor} width={item.strokeWidth} spacing={item.stitchSpacing}/>}
         {!interactive&&item.kind==='photo' && <g clipPath={`url(#clip-${sceneId}-${item.id})`}><image href={item.photoData} x={item.cropX||0} y={item.cropY||0} width={item.width*(item.cropScale||1)} height={item.height*(item.cropScale||1)} preserveAspectRatio="xMidYMid slice"/></g>}
@@ -298,6 +303,7 @@ function App() {
   const [textDraft,setTextDraft] = useState('')
   const [textSize,setTextSize] = useState(28)
   const [textColor,setTextColor] = useState('#405747')
+  const [textFont,setTextFont] = useState<TextFont>('hand')
   const [cropMode,setCropMode] = useState(false)
   const [showBackground,setShowBackground] = useState(false)
   const [showStart,setShowStart] = useState(false)
@@ -436,7 +442,16 @@ function App() {
   useEffect(()=>{ if(board) fitView(board) },[board?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const toWorld = useCallback((clientX:number,clientY:number)=>{
-    const rect=svgRef.current!.getBoundingClientRect(); const sx=(clientX-rect.left)*STAGE_W/rect.width; const sy=(clientY-rect.top)*STAGE_H/rect.height
+    const svg=svgRef.current
+    if(!svg)return {x:0,y:0,sx:0,sy:0}
+    const matrix=svg.getScreenCTM()
+    let sx=0,sy=0
+    if(matrix){
+      const point=svg.createSVGPoint();point.x=clientX;point.y=clientY
+      const local=point.matrixTransform(matrix.inverse());sx=local.x;sy=local.y
+    }else{
+      const rect=svg.getBoundingClientRect();sx=(clientX-rect.left)*STAGE_W/rect.width;sy=(clientY-rect.top)*STAGE_H/rect.height
+    }
     return {x:(sx-view.panX)/view.zoom,y:(sy-view.panY)/view.zoom,sx,sy}
   },[view])
 
@@ -583,11 +598,11 @@ function App() {
 
   const addText = ()=>{
     if(!board||!textDraft.trim())return
-    if(selected?.kind==='text'){commit(b=>({...b,items:b.items.map(i=>i.id===selected.id?{...i,text:textDraft,fontSize:textSize,color:textColor}:i)}))}
-    else {const item:BoardItem={id:uid(),kind:'text',x:board.width*.38,y:board.height*.35,width:340,height:Math.max(50,textDraft.split('\n').length*textSize*1.3),rotation:0,opacity:1,text:textDraft,fontSize:textSize,color:textColor};commit(b=>({...b,items:[...b.items,item]}));setSelectedId(item.id)}
+    if(selected?.kind==='text'){commit(b=>({...b,items:b.items.map(i=>i.id===selected.id?{...i,text:textDraft,fontSize:textSize,color:textColor,fontFamily:textFont}:i)}))}
+    else {const item:BoardItem={id:uid(),kind:'text',x:board.width*.38,y:board.height*.35,width:340,height:Math.max(50,textDraft.split('\n').length*textSize*1.3),rotation:0,opacity:1,text:textDraft,fontSize:textSize,color:textColor,fontFamily:textFont};commit(b=>({...b,items:[...b.items,item]}));setSelectedId(item.id)}
     setShowText(false);setTextDraft('')
   }
-  const openText = ()=>{setTextDraft(selected?.kind==='text'?selected.text||'':'在这里写下一句话');setTextSize(selected?.fontSize||28);setTextColor(selected?.color||'#405747');setShowText(true)}
+  const openText = ()=>{setTextDraft(selected?.kind==='text'?selected.text||'':'在这里写下一句话');setTextSize(selected?.fontSize||28);setTextColor(selected?.color||'#405747');setTextFont(selected?.kind==='text'?selected.fontFamily||'hand':'hand');setShowText(true)}
 
   const addPhotoData = (data:string,name:string,world?:{x:number;y:number})=>{
     if(!board)return
@@ -778,7 +793,7 @@ function App() {
         {contextMenu&&(()=>{const item=board.items.find(part=>part.id===contextMenu.id);const asset=item?.assetId?assetMap.get(item.assetId):undefined;const fabric=item?.kind==='asset'&&asset?.category==='fabric';if(!item)return null;return <div className="canvas-context" style={{left:contextMenu.x,top:contextMenu.y}} onMouseDown={event=>event.stopPropagation()}>{fabric&&<button onClick={()=>{autoStitch(item);setContextMenu(undefined)}}><Sparkles/>沿边自动生成缝线</button>}{fabric&&<button onClick={()=>{openCutter(asset!,item.id);setContextMenu(undefined)}}><Scissors/>裁剪这块布…</button>}{fabric&&<button onClick={()=>startInlineCut(item.id)}><Pencil/>沿画布纸样自由裁</button>}{item.cutPath&&<button onClick={()=>restoreWholeFabric(item.id)}><SquareDashed/>恢复整块布</button>}<button onClick={duplicateSelected}><Copy/>复制</button><button className="danger" onClick={deleteSelected}><Trash2/>删除</button></div>})()}
         <div className="view-controls"><button className={panMode?'active':''} onClick={()=>setPanMode(v=>!v)} title="平移画布"><MousePointer2/></button><button onClick={()=>setView(v=>({...v,zoom:Math.max(.25,v.zoom-.1)}))} aria-label="缩小"><ZoomOut/></button><span>{Math.round(view.zoom*100)}%</span><button onClick={()=>setView(v=>({...v,zoom:Math.min(2.5,v.zoom+.1)}))} aria-label="放大"><ZoomIn/></button><button onClick={()=>fitView()} aria-label="回到全景"><Grip/></button></div>
         <div className="format-switch"><button className={board.format==='landscape'?'active':''} onClick={()=>changeFormat('landscape')}>横版</button><button className={board.format==='square'?'active':''} onClick={()=>changeFormat('square')}>方版</button><button className={board.format==='portrait'?'active':''} onClick={()=>changeFormat('portrait')}>竖版</button></div>
-        {selected&&<div className="selection-toolbar">
+        {selected&&!stitchDrawMode&&<div className="selection-toolbar">
           <span className="selection-name">{selected.kind==='text'?'文字':selected.kind==='drawnStitch'?`手绘${STITCH_LABELS[selected.stitchStyle||'running']}`:assetMap.get(selected.assetId||'')?.name||'照片'}</span>
           <button onClick={()=>scaleSelected(.9)} aria-label="缩小对象"><ZoomOut/>缩小</button><button onClick={()=>scaleSelected(1.1)} aria-label="放大对象"><ZoomIn/>放大</button><button onClick={()=>rotateSelected(-15)} aria-label="向左旋转"><RotateCcw/>左转</button><button onClick={()=>rotateSelected(15)} aria-label="向右旋转"><RotateCw/>右转</button>
           {selected.kind==='frame'&&<><button onClick={()=>photoInput.current?.click()}><ImagePlus/>换照片</button><button className={cropMode?'active':''} onClick={()=>setCropMode(v=>!v)}><MousePointer2/>调整照片</button></>}
@@ -788,7 +803,7 @@ function App() {
           {selected.cutPath&&<><button onClick={()=>adjustTexture(-10,0,0)} aria-label="布纹向左">纹理←</button><button onClick={()=>adjustTexture(10,0,0)} aria-label="布纹向右">纹理→</button><button onClick={()=>adjustTexture(0,0,-.12)} aria-label="缩小布纹"><Minus/></button><button onClick={()=>adjustTexture(0,0,.12)} aria-label="放大布纹"><Plus/></button></>}
           <button onClick={duplicateSelected}><Copy/>复制</button>{selected.kind!=='text'&&selected.kind!=='drawnStitch'&&<><button onClick={()=>flipSelected('x')}><FlipHorizontal/>水平翻转</button><button onClick={()=>flipSelected('y')}><FlipVertical/>垂直翻转</button></>}<button onClick={()=>layerMove(true)}><BringToFront/>前移</button><button onClick={()=>layerMove(false)}><SendToBack/>后移</button><button className="danger" onClick={deleteSelected}><Trash2/>删除</button>
         </div>}
-        {selected?.kind==='drawnStitch'&&<div className="stitch-editor-panel"><div className="stitch-editor-title"><Pencil/><span><b>{selected.autoSourceId?'自动缝边':'手绘缝线'}</b><small>调整后仍可移动、旋转和缩放</small></span></div><div className="stitch-editor-controls"><label className="stitch-color-control" title="缝线颜色"><span>颜色</span><input aria-label="缝线颜色" type="color" value={selected.strokeColor||'#704c43'} onChange={event=>{setStitchColor(event.target.value);updateStitch({strokeColor:event.target.value})}}/></label><label><span>粗细</span><input aria-label="缝线粗细" type="range" min="1" max="10" step=".5" value={selected.strokeWidth||3} onChange={event=>{const value=Number(event.target.value);setStitchWidth(value);updateStitch({strokeWidth:value})}}/></label><label><span>针距</span><input aria-label="缝线针距" type="range" min="6" max="30" step="1" value={selected.stitchSpacing||16} onChange={event=>{const value=Number(event.target.value);setStitchSpacing(value);updateStitch({stitchSpacing:value})}}/></label><label><span>透明</span><input aria-label="缝线透明度" type="range" min=".2" max="1" step=".05" value={selected.opacity} onChange={event=>updateStitch({opacity:Number(event.target.value)})}/></label>{selected.stitchBasePoints&&<label><span>离边</span><input aria-label="缝线离边距离" type="range" min="-20" max="35" step="1" value={selected.stitchInset||0} onChange={event=>changeStitchInset(Number(event.target.value))}/></label>}</div><div className="stitch-editor-styles">{(Object.entries(STITCH_LABELS) as [StitchStyle,string][]).map(([style,label])=><button key={style} className={selected.stitchStyle===style?'active':''} onClick={()=>changeStitchStyle(style)}>{label}</button>)}</div></div>}
+        {selected?.kind==='drawnStitch'&&!stitchDrawMode&&<div className="stitch-editor-panel"><div className="stitch-editor-title"><Pencil/><span><b>{selected.autoSourceId?'自动缝边':'手绘缝线'}</b><small>调整后仍可移动、旋转和缩放</small></span></div><div className="stitch-editor-controls"><label className="stitch-color-control" title="缝线颜色"><span>颜色</span><input aria-label="缝线颜色" type="color" value={selected.strokeColor||'#704c43'} onChange={event=>{setStitchColor(event.target.value);updateStitch({strokeColor:event.target.value})}}/></label><label><span>粗细</span><input aria-label="缝线粗细" type="range" min="1" max="10" step=".5" value={selected.strokeWidth||3} onChange={event=>{const value=Number(event.target.value);setStitchWidth(value);updateStitch({strokeWidth:value})}}/></label><label><span>针距</span><input aria-label="缝线针距" type="range" min="6" max="30" step="1" value={selected.stitchSpacing||16} onChange={event=>{const value=Number(event.target.value);setStitchSpacing(value);updateStitch({stitchSpacing:value})}}/></label><label><span>透明</span><input aria-label="缝线透明度" type="range" min=".2" max="1" step=".05" value={selected.opacity} onChange={event=>updateStitch({opacity:Number(event.target.value)})}/></label>{selected.stitchBasePoints&&<label><span>离边</span><input aria-label="缝线离边距离" type="range" min="-20" max="35" step="1" value={selected.stitchInset||0} onChange={event=>changeStitchInset(Number(event.target.value))}/></label>}</div><div className="stitch-editor-styles">{(Object.entries(STITCH_LABELS) as [StitchStyle,string][]).map(([style,label])=><button key={style} className={selected.stitchStyle===style?'active':''} onClick={()=>changeStitchStyle(style)}>{label}</button>)}</div></div>}
         {cropMode&&selected&&(selected.kind==='frame'||selected.kind==='photo')&&<div className="crop-toolbar"><b>调整框内照片</b><button onClick={()=>cropAdjust(-12,0)}>←</button><button onClick={()=>cropAdjust(12,0)}>→</button><button onClick={()=>cropAdjust(0,-12)}>↑</button><button onClick={()=>cropAdjust(0,12)}>↓</button><button onClick={()=>cropAdjust(0,0,-.1)}><Minus/></button><button onClick={()=>cropAdjust(0,0,.1)}><Plus/></button><button onClick={()=>setCropMode(false)}><Check/>完成</button></div>}
       </section>
     </main>
@@ -812,7 +827,7 @@ function App() {
 
     {showFabricUpload&&fabricDraft&&<div className="modal-backdrop" onMouseDown={()=>setShowFabricUpload(false)}><div className="modal fabric-modal" onMouseDown={event=>event.stopPropagation()}><div className="modal-head"><div><small>系统先给建议，你来做最后确认</small><h2>收进我的布料</h2></div><button onClick={()=>setShowFabricUpload(false)}><X/></button></div><div className="fabric-review"><img src={fabricDraft.data} alt="上传的布料"/><div><label>布料名称<input value={fabricDraft.name} onChange={event=>setFabricDraft({...fabricDraft,name:event.target.value})}/></label><label>主要颜色<select value={fabricDraft.color} onChange={event=>setFabricDraft({...fabricDraft,color:event.target.value})}>{colorOptions.map(value=><option key={value}>{value}</option>)}</select></label><label>纹样<select value={fabricDraft.pattern} onChange={event=>setFabricDraft({...fabricDraft,pattern:event.target.value})}>{['纯色','碎花','格纹','条纹','波点','几何','印染','纹理','多色图案'].map(value=><option key={value}>{value}</option>)}</select></label><label>材质<select value={fabricDraft.material} onChange={event=>setFabricDraft({...fabricDraft,material:event.target.value})}>{['未确认','棉布','亚麻','牛仔','毛毡','丝缎','纱类','帆布'].map(value=><option key={value}>{value}</option>)}</select></label><p>图片无法稳定判断真实材质，所以材质默认留为“未确认”。颜色与纹样建议置信度：{fabricDraft.confidence}。</p></div></div><div className="modal-actions"><button onClick={()=>setShowFabricUpload(false)}>取消</button><button className="primary-btn" onClick={saveUserFabric}>确认并收进布料柜</button></div></div></div>}
 
-    {showText&&<div className="modal-backdrop" onMouseDown={()=>setShowText(false)}><div className="modal text-modal" onMouseDown={e=>e.stopPropagation()}><div className="modal-head"><div><small>添加文字</small><h2>给这一页留句话</h2></div><button onClick={()=>setShowText(false)}>×</button></div><textarea autoFocus value={textDraft} onChange={e=>setTextDraft(e.target.value)} rows={4}/><div className="text-options"><label>字号 <input type="range" min="14" max="72" value={textSize} onChange={e=>setTextSize(Number(e.target.value))}/><span>{textSize}</span></label><label>颜色 <input type="color" value={textColor} onChange={e=>setTextColor(e.target.value)}/></label></div><div className="modal-actions"><button onClick={()=>setShowText(false)}>取消</button><button className="primary-btn" onClick={addText}>放到画布</button></div></div></div>}
+    {showText&&<div className="modal-backdrop" onMouseDown={()=>setShowText(false)}><div className="modal text-modal" onMouseDown={e=>e.stopPropagation()}><div className="modal-head"><div><small>添加文字</small><h2>给这一页留句话</h2></div><button onClick={()=>setShowText(false)}>×</button></div><textarea autoFocus value={textDraft} onChange={e=>setTextDraft(e.target.value)} rows={4} style={{fontFamily:TEXT_FONTS[textFont].stack}}/><div className="text-options"><label>字体 <select value={textFont} onChange={e=>setTextFont(e.target.value as TextFont)}>{(Object.entries(TEXT_FONTS) as [TextFont,{label:string;stack:string}][]).map(([value,font])=><option key={value} value={value}>{font.label}</option>)}</select></label><label>字号 <input type="range" min="14" max="72" value={textSize} onChange={e=>setTextSize(Number(e.target.value))}/><span>{textSize}</span></label><label>颜色 <input type="color" value={textColor} onChange={e=>setTextColor(e.target.value)}/></label></div><div className="modal-actions"><button onClick={()=>setShowText(false)}>取消</button><button className="primary-btn" onClick={addText}>放到画布</button></div></div></div>}
     {showHelp&&<div className="modal-backdrop" onMouseDown={()=>setShowHelp(false)}><div className="modal help-modal" onMouseDown={e=>e.stopPropagation()}><div className="modal-head"><div><small>一条看得懂的创作路径</small><h2>纸样 → 放布 → 裁布 → 拼贴</h2></div><button onClick={()=>setShowHelp(false)}>×</button></div><div className="help-steps"><div><b>01</b><span><strong>从纸样、图片或空白板开始</strong><small>图片可转轮廓、色块或半透明描图底稿，纸样随时可隐藏。</small></span></div><div><b>02</b><span><strong>先把整块布放上画布</strong><small>点击或拖入即可，放下后立即能选中、移动、缩放和旋转。</small></span></div><div><b>03</b><span><strong>选中或右键后再决定怎么裁</strong><small>可拖动布纹选范围、自由画轮廓，也可直接贴着画布上的纸样描边。手机用底部的“裁剪”按钮。</small></span></div><div><b>04</b><span><strong>手绘针脚，或给布片自动缝边</strong><small>选中布片点“自动缝边”，系统会沿真实裁剪轮廓生成独立缝线；颜色、粗细、针距、透明度、离边距离和针法都能继续调整。</small></span></div></div><div className="shortcut-list"><span>右键布料 裁剪 / 自动缝边</span><span>⌘/Ctrl Z 撤销</span><span>Delete 删除</span><span>方向键微移</span></div><div className="modal-actions"><button onClick={()=>projectInput.current?.click()}><Upload/>导入组员项目</button><button className="primary-btn" onClick={()=>{setShowHelp(false);setShowStart(true)}}>回到创作起点</button></div></div></div>}
     {seriesInfo&&<div className="modal-backdrop" onMouseDown={()=>setSeriesInfo(undefined)}><div className="modal source-modal" onMouseDown={e=>e.stopPropagation()}><div className="modal-head"><div><small>私人本地学习素材包</small><h2>{seriesInfo==='sources'?'关于这套素材':seriesInfo}</h2></div><button onClick={()=>setSeriesInfo(undefined)}>×</button></div>{seriesInfo==='sources'&&<><div className="source-stats"><b>{baseFabrics.length}</b><span>基础布料</span><b>9</b><span>内置裁法</span><b>{assets.filter(a=>a.category==='fabric').length}</b><span>兼容旧裁片</span></div><p>素材库以“基础布料”为主体。用户先把整布放到画布，然后再选形状、拖动纹样范围或沿纸样自由裁剪，不会再把同一块布的九种形状当作九种材料。旧作品依然能正常打开。</p><p>内置素材根据用户提供的参考提炼色彩、织纹、旧化与手作语言；用户上传的布料只存在当前浏览器，系统标签只是建议，以用户确认为准。</p><div className="source-links"><a href="/assets/fabric-overview.webp" target="_blank">打开完整布料总览 ↗</a></div></>}</div></div>}
     {toast&&<div className="toast" role="status">{toast}</div>}
