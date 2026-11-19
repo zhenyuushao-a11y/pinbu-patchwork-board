@@ -786,7 +786,10 @@ function App() {
   const normalizedQuery=searchQuery.trim().toLowerCase()
   const matchesFabric=useCallback((a:Asset,omit?:keyof typeof filters)=>{
     if(seriesFilter&&a.series!==seriesFilter)return false
-    if(omit!=='colors'&&filters.colors.length&&!filters.colors.some(value=>(a.colors||[]).includes(value)||a.color===value))return false
+    // The filter must mean exactly what the card says. `colors` also contains
+    // small accent colours (flowers, threads, checks), so using it here made a
+    // mostly blue fabric appear under yellow just because it had a yellow dot.
+    if(omit!=='colors'&&filters.colors.length&&!filters.colors.includes(a.color))return false
     if(omit!=='materials'&&filters.materials.length&&!filters.materials.includes(a.material))return false
     if(omit!=='patterns'&&filters.patterns.length&&!filters.patterns.includes(a.pattern))return false
     if(normalizedQuery){const hay=[a.name,a.id,a.shapeName,a.material,a.pattern,a.series,...(a.tags||[])].join(' ').toLowerCase();if(!hay.includes(normalizedQuery))return false}
@@ -794,7 +797,7 @@ function App() {
   },[filters,normalizedQuery,seriesFilter])
   const filtered=useMemo(()=>tab==='fabric'?baseFabrics.filter(a=>matchesFabric(a)):assets.filter(a=>a.category===tab),[assets,baseFabrics,matchesFabric,tab])
   const facetCount=useCallback((key:keyof typeof filters,value:string)=>baseFabrics.filter(a=>matchesFabric(a,key)&&(
-    key==='colors'?((a.colors||[]).includes(value)||a.color===value):key==='materials'?a.material===value:a.pattern===value
+    key==='colors'?a.color===value:key==='materials'?a.material===value:a.pattern===value
   )).length,[baseFabrics,matchesFabric])
   const visibleAssets=filtered.slice(0,visibleLimit)
   useEffect(()=>setVisibleLimit(40),[filters,searchQuery,tab,seriesFilter])
